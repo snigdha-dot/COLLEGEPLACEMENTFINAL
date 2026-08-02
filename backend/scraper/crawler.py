@@ -71,15 +71,37 @@ _HREF = re.compile(r"""<a\s[^>]*href\s*=\s*["']([^"'#]+)""", re.IGNORECASE)
 
 
 class CrawledPage:
-    """One fetched page plus why the crawler thought it was worth fetching."""
+    """One fetched page plus why the crawler thought it was worth fetching.
 
-    __slots__ = ("url", "html", "depth", "priority")
+    Carries BOTH representations, because neither alone is sufficient —
+    measured on live college sites (2026-08-02):
 
-    def __init__(self, url: str, html: str, depth: int, priority: int) -> None:
+        reva.edu.in/contact-us   html: 0 emails, 5 phones
+                                 markdown: 9 emails, 0 phones
+        bmsce.ac.in/home/Contact html: 558 bytes, nothing
+                                 markdown: 9817 bytes, 1 email
+
+    Ollagraph's HTML conversion drops most rendered text on these sites while
+    markdown keeps it; markdown in turn discards the `data-cfemail` attributes
+    the Cloudflare decoder needs, and sometimes the phone numbers. Fetching
+    both costs a second credit per page and is the difference between a
+    college yielding contacts and yielding nothing.
+    """
+
+    __slots__ = ("url", "html", "markdown", "depth", "priority")
+
+    def __init__(self, url: str, html: str, depth: int, priority: int,
+                 markdown: str = "") -> None:
         self.url = url
         self.html = html
+        self.markdown = markdown
         self.depth = depth
         self.priority = priority
+
+    @property
+    def text(self) -> str:
+        """Everything worth running an extractor over."""
+        return f"{self.markdown}\n{self.html}" if self.markdown else self.html
 
     def __repr__(self) -> str:
         return f"CrawledPage({self.url!r}, depth={self.depth}, priority={self.priority})"
@@ -146,13 +168,23 @@ async def crawl_site(
 
     try:
         seed_response = await client.scrape(base_url, format="html")
+        seed_html = seed_response.get("content") or ""
     except OllagraphError as exc:
         log.warning("crawl seed %s failed: %s", base_url, exc)
         return pages
 
-    seed_html = seed_response.get("content") or ""
+    # Markdown carries the rendered text that HTML conversion drops on many
+    # college sites; HTML carries the links this crawler needs to follow. Both
+    # are kept — see CrawledPage for the measurements behind this.
+    seed_markdown = ""
+    try:
+        seed_markdown = (await client.scrape(base_url, format="markdown")).get("content") or ""
+    except OllagraphError:
+        pass
+
     visited.add(base_url.rstrip("/"))
-    pages.append(CrawledPage(base_url, seed_html, depth=0, priority=99))
+    pages.append(CrawledPage(base_url, seed_html, depth=0, priority=99,
+                             markdown=seed_markdown))
 
     if not seed_html or max_depth < 1:
         return pages
@@ -179,9 +211,16 @@ async def crawl_site(
             continue
 
         html = response.get("content") or ""
-        if not html:
+        markdown = ""
+        try:
+            markdown = (await client.scrape(url, format="markdown")).get("content") or ""
+        except OllagraphError:
+            pass
+
+        if not html and not markdown:
             continue
-        pages.append(CrawledPage(url, html, depth=depth, priority=priority))
+        pages.append(CrawledPage(url, html, depth=depth, priority=priority,
+                                 markdown=markdown))
 
         if depth < max_depth:
             additions: list[tuple[int, int, str]] = []
