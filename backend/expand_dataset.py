@@ -70,25 +70,35 @@ def db_count() -> int:
         return len(repo.admin_rows(conn, limit=100000))
 
 
-def marketing_count() -> int:
+def marketing_count(state: str | None = None) -> int:
     """Rows the marketing team can actually see and export.
 
     This is the number the target counts, not the DB total. A college with an
     email but no phone sits in the DB and helps nobody sell anything.
+
+    When a run is scoped to one state, the target counts THAT state's rows —
+    otherwise topping up the weakest state would appear to make no progress,
+    because the national total moves by a fraction of each addition.
     """
     with get_conn() as conn:
-        return len(repo.marketing_rows(conn, limit=100000))
+        return len(repo.marketing_rows(conn, state=state, limit=100000))
 
 
 async def collect_candidates(
     client: OllagraphClient, *, force_refresh: bool = False,
+    only_state: str | None = None,
 ) -> list[SeedCollege]:
-    """Gather seed colleges across every state+stream, minus what we have."""
+    """Gather seed colleges across every state+stream, minus what we have.
+
+    `only_state` narrows the draw to one state, so a run can top up whichever
+    state is furthest behind rather than pulling from whatever seeds first.
+    """
     have = existing_keys()
     candidates: list[SeedCollege] = []
     seen: set[str] = set()
 
-    for state, stream in TARGETS:
+    targets = [t for t in TARGETS if not only_state or t[0] == only_state]
+    for state, stream in targets:
         try:
             colleges, meta = await build_seed_list(
                 state, stream, force_refresh=force_refresh, client=client,  # type: ignore[arg-type]
@@ -139,7 +149,7 @@ def _store(result: Any) -> None:
 async def run(
     *, target: int, dry_run: bool = False, concurrency: int = 2,
     credit_cap: float = 5000, force_refresh: bool = False,
-    pause: float = 0.0,
+    pause: float = 0.0, only_state: str | None = None,
 ) -> None:
     start = marketing_count()
     start_db = db_count()
@@ -153,7 +163,8 @@ async def run(
         concurrency=concurrency, credit_cap=credit_cap, max_retries=2
     ) as client:
         print("Seeding candidate colleges:")
-        candidates = await collect_candidates(client, force_refresh=force_refresh)
+        candidates = await collect_candidates(
+            client, force_refresh=force_refresh, only_state=only_state)
         print(f"\n{len(candidates)} candidate colleges not already in the DB.")
 
         # Scrape more colleges than the shortfall: not every one yields both
@@ -249,7 +260,7 @@ async def run(
 
     with get_conn() as conn:
         total = len(repo.admin_rows(conn, limit=100000))
-        visible = len(repo.marketing_rows(conn, limit=100000))
+        visible = len(repo.marketing_rows(conn, state=only_state, limit=100000))
     print(f"\nadded    : {added}   (failed: {failed})")
     print(f"DB total : {start} -> {total}   (target {target})")
     print(f"marketing: {visible}")
@@ -270,6 +281,8 @@ def main(argv: list[str] | None = None) -> int:
     # a quieter retry — the rate limiting looked like a 50% yield when it was
     # really throttling. 2 keeps the run inside Ollagraph's limits.
     parser.add_argument("--concurrency", type=int, default=2)
+    parser.add_argument("--state", default=None,
+                        help="draw candidates from one state only")
     parser.add_argument("--pause", type=float, default=0.0,
                         help="seconds to wait before each college; use 3-5 when "
                              "Ollagraph is rate-limiting")
@@ -279,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     asyncio.run(run(
         target=args.target, dry_run=args.dry_run, credit_cap=args.credit_cap,
         force_refresh=args.force_refresh, concurrency=args.concurrency,
-        pause=args.pause,
+        pause=args.pause, only_state=args.state,
     ))
     return 0
 
