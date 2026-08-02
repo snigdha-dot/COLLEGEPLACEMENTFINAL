@@ -137,7 +137,7 @@ def _store(result: Any) -> None:
 
 
 async def run(
-    *, target: int, dry_run: bool = False, concurrency: int = 3,
+    *, target: int, dry_run: bool = False, concurrency: int = 2,
     credit_cap: float = 5000, force_refresh: bool = False,
 ) -> None:
     start = marketing_count()
@@ -241,7 +241,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="abort the run past this many credits")
     parser.add_argument("--force-refresh", action="store_true",
                         help="rebuild seed lists instead of using the 30-day cache")
-    parser.add_argument("--concurrency", type=int, default=3)
+    # Concurrency 4 triggered sustained 429s from /v1/extract/contacts and
+    # /v1/verify/email, and colleges that failed under that load succeeded on
+    # a quieter retry — the rate limiting looked like a 50% yield when it was
+    # really throttling. 2 keeps the run inside Ollagraph's limits.
+    parser.add_argument("--concurrency", type=int, default=2)
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
