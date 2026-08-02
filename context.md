@@ -22,9 +22,11 @@ filter, and export.
 - Frontend: Next.js (App Router), sonner for toasts
 
 ## Current status
-**Phases 0-7 built. Pipeline verified working end-to-end on Karnataka (2026-08-02).**
+**Phases 0-7 built. Pipeline verified end-to-end on Karnataka. A dataset
+importer (backend/import_data.py) allows the UI to be populated without
+scraping, which is the current path while gmaps is blocked (2026-08-02).**
 
-114 tests pass across 10 modules; none spend credits. ~350 credits used
+129 tests pass across 11 modules; none spend credits. ~350 credits used
 in total; balance ~62,190 of the starting 62,500.
 
 ### Pipeline proof (REVA University, BMS College of Engineering)
