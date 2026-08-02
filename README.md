@@ -123,6 +123,34 @@ verified them. They are also safe to scrape over later: the pipeline only
 fills fields it finds empty, so it adds what is missing without overwriting
 your data.
 
+### Filling in missing phone numbers
+
+Colleges that have an email and a website but no phone are held out of the
+marketing view. `fill_phones.py` targets exactly those:
+
+```bash
+# always dry-run first — reports findings without writing
+venv/Scripts/python.exe -m backend.fill_phones --limit 10 --dry-run
+
+venv/Scripts/python.exe -m backend.fill_phones --limit 100
+venv/Scripts/python.exe -m backend.fill_phones --state Karnataka
+```
+
+It is much cheaper than the full pipeline because there is no discovery and
+no site-wide crawl — the website is already known, so it fetches only
+contact-bearing pages (`/contact-us`, `/placement`, homepage), up to 4 per
+college.
+
+**It verifies the site before scraping it.** A URL from a spreadsheet can be
+dead, parked, or simply wrong, so the fetched page must actually identify as
+that college (distinctive word from the name, its acronym, or the domain
+name appearing in the text). A site that fails this check is reported
+`UNVERIFIED` and skipped rather than scraped — attaching a stranger's phone
+number to a row marketing then calls is worse than leaving it blank.
+
+Numbers found are stored as the **fallback** contact, not the placement
+contact, since nothing here establishes they belong to the placement cell.
+
 ### API endpoints
 
 ```
