@@ -60,8 +60,9 @@ COLUMN_ALIASES: list[tuple[tuple[str, ...], str]] = [
     (("allemailsfound", "allemails", "alternateemail", "secondaryemail",
       "backupemail", "otheremail", "generalemail", "fallbackemail",
       "additionalemails"), "fallback_contact_email"),
-    (("alternatephone", "secondaryphone", "backupphone", "otherphone",
-      "generalphone", "landline", "fallbackphone"), "fallback_contact_phone"),
+    (("allphonesfound", "allphones", "alternatephone", "secondaryphone",
+      "backupphone", "otherphone", "generalphone", "landline",
+      "fallbackphone", "additionalphones"), "fallback_contact_phone"),
 ]
 
 #: Values that mean "empty" in hand-maintained spreadsheets.
