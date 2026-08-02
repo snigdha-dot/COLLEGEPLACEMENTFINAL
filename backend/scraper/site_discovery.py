@@ -123,9 +123,18 @@ def score_candidate(url: str, college_name: str, *, title: str = "") -> SiteCand
             candidate.reasons.append("college name in domain")
             name_matched = True
         elif len(acronym) >= 3 and acronym in host_letters:
-            candidate.score += 30
-            candidate.reasons.append("acronym in domain")
-            name_matched = True
+            # An acronym match is weaker than a name match and can land on the
+            # wrong institution: "IIT Madras (IITM)" matched iitk.ac.in — IIT
+            # Kanpur — and stored dora@iitk.ac.in for a college 2,000km away.
+            # Require the host to be essentially the acronym rather than merely
+            # containing it, so "iitm" does not match "iitk"-adjacent hosts.
+            if host_letters == acronym or host_letters.startswith(acronym):
+                candidate.score += 30
+                candidate.reasons.append("acronym in domain")
+                name_matched = True
+            else:
+                candidate.score += 5
+                candidate.reasons.append("weak partial acronym match")
 
     path = urlparse(url if "://" in url else f"https://{url}").path
     if _LISTING_PATH.search(path):

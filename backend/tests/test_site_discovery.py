@@ -92,6 +92,19 @@ def test_unrelated_domain_below_threshold() -> None:
     )
 
 
+def test_partial_acronym_does_not_match_a_different_institution() -> None:
+    """REGRESSION: "IIT Madras (IITM)" matched iitk.ac.in — IIT Kanpur — and
+    stored dora@iitk.ac.in for a college 2,000km away. An acronym must
+    essentially BE the host, not merely appear inside it."""
+    wrong = score_candidate(
+        "https://www.iitk.ac.in/", "IIT Madras (IITM) - Indian Institute of Technology"
+    )
+    assert not wrong.acceptable, f"IIT Kanpur accepted for IIT Madras ({wrong.score})"
+
+    right = score_candidate("https://www.iitm.ac.in/", "Indian Institute of Technology Madras")
+    assert right.acceptable, "the correct IIT Madras domain must still pass"
+
+
 def test_malformed_url_is_safe() -> None:
     for bad in ["", "not a url", "://broken"]:
         candidate = score_candidate(bad, "Some College")
