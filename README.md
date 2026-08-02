@@ -58,6 +58,27 @@ npm run dev
 Not yet implemented — endpoints and UI land in phases 6 and 7. This section
 expands as they're built.
 
+## Tests
+
+Each test module runs standalone with no test-runner dependency:
+
+```bash
+venv/Scripts/python.exe backend/tests/test_marketing_projection.py
+venv/Scripts/python.exe backend/tests/test_cloudflare_decoder.py
+```
+
+They also work under `pytest` if you install it (`pip install pytest`, dev-only
+— deliberately not in `requirements.txt`, which is the runtime dependency set):
+
+```bash
+venv/Scripts/python.exe -m pytest backend/tests/ -q
+```
+
+The marketing-projection tests guard two rules the brief states as absolutes:
+a row reaches marketing only if it has both an email and a phone, and
+`status` / `last_scraped` / `confidence_score` never appear in a marketing
+payload.
+
 ## Cost note
 
 Ollagraph bills per successful call. Master lists are cached per

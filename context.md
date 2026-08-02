@@ -22,28 +22,33 @@ filter, and export.
 - Frontend: Next.js (App Router), sonner for toasts
 
 ## Current status
-**Phase 0 — scaffolding. In progress (2026-08-02).**
+**Phase 1 complete — DB schema + inert fallback stubs (2026-08-02).**
 
 Pilot state for phases 2–4: **Karnataka** (chosen because ~437 colleges
 across KA/AP/TN were hand-validated in prior testing, giving a ground-truth
 count to sanity-check the seed builder against).
 
-Nothing is wired to Ollagraph yet. No API calls have been made. No pipeline
-code exists.
+Nothing is wired to Ollagraph yet. **No API calls have been made and nothing
+has been billed.** The three fallback modules exist but are deliberately
+unwired — discovery and crawler raise `FallbackNotWired` if called; the
+Cloudflare decoder is fully implemented and unit-tested but nothing calls it.
 
-Known blockers / deferred items:
-- `gh` CLI is not installed on the dev machine, so the private GitHub repo
-  has not been created or pushed. Git history is local-only until then.
-- `.env` does not yet contain `OLLAGRAPH_API_KEY`. Phase 2 onward cannot
-  run until the maintainer populates it.
+**BLOCKED at phase 2.** `.env` does not exist and `OLLAGRAPH_API_KEY` is not
+set. Every remaining phase is Ollagraph-dependent, so the pipeline cannot run
+until the maintainer creates `.env` from `.env.example` and adds the key.
 
-Next up: phase 1 — DB schema + models (full internal schema), with the
-fallback modules (DuckDuckGo scoring, BFS crawler, Cloudflare decoder)
-stubbed out as inert and deliberately unwired.
+Other deferred items:
+- `gh` CLI is not installed on the dev machine, so the private GitHub repo has
+  not been created or pushed. Git history is local-only. Install `gh`, run
+  `gh auth login`, then `gh repo create <name> --private --source=. --push`.
+
+Next up: phase 2 — master list builder for Karnataka, then the count sanity
+check (a plausible number, not 5 and not 5000) before any per-college scraping
+is allowed to start.
 
 ## Build order and progress
 - [x] 0. Scaffolding — AGENTS.md, context.md, README, git, venv, deps, frontend
-- [ ] 1. DB schema + models; inert fallback stubs
+- [x] 1. DB schema + models; inert fallback stubs
 - [ ] 2. Master list builder, pilot state only (Karnataka)
 - [ ] 3. Ollagraph-only pipeline, end-to-end on pilot
 - [ ] 4. Evaluate pilot stage-by-stage; wire fallbacks only where needed
@@ -66,8 +71,23 @@ requirements.txt                   — Python dependencies
 backend/
 ├── __init__.py                    — package marker
 ├── api/__init__.py                — package marker; routes land in phase 6
-├── db/__init__.py                 — package marker; schema lands in phase 1
-├── scraper/__init__.py            — package marker; pipeline lands in phases 2–4
+├── db/
+│   ├── session.py                 — sqlite3 connect + get_conn ctx manager; WAL, busy_timeout
+│   └── models.py                  — SCHEMA (colleges, scrape_runs) + the marketing
+│                                    projection: MARKETING_SELECT, MARKETING_COMPLETENESS_FILTER,
+│                                    INTERNAL_ONLY_COLUMNS. The internal/marketing boundary is
+│                                    defined HERE, once, not in the API layer.
+├── scraper/
+│   ├── discovery.py               — FALLBACK, INERT. DuckDuckGo discovery. Raises
+│   │                                FallbackNotWired. Holds BLOCKED_DOMAINS (29 aggregators).
+│   ├── crawler.py                 — FALLBACK, INERT. BFS crawler. Raises FallbackNotWired.
+│   │                                Holds PLACEMENT_PATH_HINTS, SKIP_EXTENSIONS.
+│   └── cloudflare_decoder.py      — FALLBACK, IMPLEMENTED BUT UNWIRED. decode_all() /
+│                                    decode_cfemail(). Pure transform, no network, so it is
+│                                    written and tested now; wiring is a phase-4 decision.
+├── tests/
+│   ├── test_marketing_projection.py — guards the completeness filter + internal-column leaks
+│   └── test_cloudflare_decoder.py   — round-trip, malformed input, document ordering
 ├── reference/
 │   └── state_districts.json       — static district list, 36 states/UTs, 770 districts
 └── seed_lists/.gitkeep            — dir marker; cached master-list CSVs (gitignored)
