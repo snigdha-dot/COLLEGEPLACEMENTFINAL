@@ -78,6 +78,11 @@ backend/
 │                                    INTERNAL_ONLY_COLUMNS. The internal/marketing boundary is
 │                                    defined HERE, once, not in the API layer.
 ├── scraper/
+│   ├── normalize.py               — normalize_name/dedupe_key for seed merging. Pure, no
+│   │                                network. Conservative on purpose: a suffix is stripped
+│   │                                only if a distinguishing word survives, so "BMS College
+│   │                                of Engineering" and "BMS Institute of Technology" stay
+│   │                                distinct rather than both collapsing to "bms".
 │   ├── discovery.py               — FALLBACK, INERT. DuckDuckGo discovery. Raises
 │   │                                FallbackNotWired. Holds BLOCKED_DOMAINS (29 aggregators).
 │   ├── crawler.py                 — FALLBACK, INERT. BFS crawler. Raises FallbackNotWired.
@@ -87,7 +92,8 @@ backend/
 │                                    written and tested now; wiring is a phase-4 decision.
 ├── tests/
 │   ├── test_marketing_projection.py — guards the completeness filter + internal-column leaks
-│   └── test_cloudflare_decoder.py   — round-trip, malformed input, document ordering
+│   ├── test_cloudflare_decoder.py   — round-trip, malformed input, document ordering
+│   └── test_normalize.py            — dedupe merge/collision, real Karnataka fixtures
 ├── reference/
 │   └── state_districts.json       — static district list, 36 states/UTs, 770 districts
 └── seed_lists/.gitkeep            — dir marker; cached master-list CSVs (gitignored)
