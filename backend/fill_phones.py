@@ -109,12 +109,24 @@ def site_belongs_to_college(page_text: str, college_name: str, url: str) -> bool
         return True
 
     # Acronym-named colleges ("BMSIT", "KSIT") rarely spell the full name out.
+    # Two variants are tried, because real acronyms disagree about which words
+    # count: "Kammavari Sangha Institute of Technology" is KSIT (institute and
+    # technology included) while "Dayananda Sagar Academy of Technology and
+    # Management" is DSATM. Dropping the institution words built "kst" for the
+    # first and missed it entirely.
     words = re.findall(r"[A-Za-z]+", college_name)
-    skip = {"of", "the", "and", "for", "in", "at", "college", "institute",
-            "technology", "engineering", "university", "science"}
-    acronym = "".join(w[0].lower() for w in words if w.lower() not in skip)
-    if len(acronym) >= 3 and acronym in haystack:
-        return True
+    filler = {"of", "the", "and", "for", "in", "at"}
+    institution = {"college", "institute", "academy", "school", "technology",
+                   "engineering", "university", "science", "management"}
+
+    long_form = "".join(w[0].lower() for w in words if w.lower() not in filler)
+    short_form = "".join(
+        w[0].lower() for w in words
+        if w.lower() not in filler and w.lower() not in institution
+    )
+    for acronym in (long_form, short_form):
+        if len(acronym) >= 3 and acronym in haystack:
+            return True
 
     # Last resort: the domain's own name appearing in the page (a college site
     # nearly always mentions itself somewhere).
@@ -200,7 +212,7 @@ async def fill_one(client: OllagraphClient, row: Any) -> FillResult:
 
 async def run(
     *, limit: int, state: str | None = None, dry_run: bool = False,
-    concurrency: int = 3, credit_cap: float = 2000,
+    concurrency: int = 3, credit_cap: float = 2000, retries: int = 2,
 ) -> list[FillResult]:
     with get_conn() as conn:
         rows = repo.admin_rows(conn, state=state, limit=100000)
@@ -224,12 +236,14 @@ async def run(
     results: list[FillResult] = []
     semaphore = asyncio.Semaphore(concurrency)
 
-    # max_retries=1: a 500 from /v1/scrape here means the college's own site is
-    # down, not a transient API blip. Retrying with backoff costs ~7s per dead
-    # site and never succeeds — measured across a 5-college sample where 4 of
-    # the 5 sites were unreachable.
+    # max_retries=2 is a compromise. Most 500s here mean the college's own site
+    # is down, and retrying costs ~7s per dead site for nothing. But a single
+    # attempt produced false negatives: BITS Pilani was marked "did not identify
+    # as this college" during a run, then verified cleanly (68KB of content) on
+    # a manual re-fetch. One retry catches the transient case without paying
+    # full backoff on genuinely dead domains.
     async with OllagraphClient(
-        concurrency=concurrency, credit_cap=credit_cap, max_retries=1
+        concurrency=concurrency, credit_cap=credit_cap, max_retries=retries
     ) as client:
         async def _one(row: Any) -> None:
             async with semaphore:
@@ -282,11 +296,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="report findings without writing to the DB")
     parser.add_argument("--credit-cap", type=float, default=2000,
                         help="abort the run past this many credits")
+    parser.add_argument("--retries", type=int, default=2,
+                        help="attempts per page fetch (default 2)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     asyncio.run(run(limit=args.limit, state=args.state, dry_run=args.dry_run,
-                    credit_cap=args.credit_cap))
+                    credit_cap=args.credit_cap, retries=args.retries))
     return 0
 
 
