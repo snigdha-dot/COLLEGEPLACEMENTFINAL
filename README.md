@@ -87,6 +87,42 @@ Then open:
    and a phone appear there — that filter is applied server-side and cannot
    be bypassed from the UI.
 
+### Importing an existing dataset
+
+If you already have a spreadsheet of colleges, load it directly — no scraping
+required. One file may mix states and streams; each row is read on its own.
+
+```bash
+# 1. Always dry-run first: shows the column mapping and counts, writes nothing
+venv/Scripts/python.exe -m backend.import_data data.xlsx --dry-run
+
+# 2. Check the mapping looks right, then import
+venv/Scripts/python.exe -m backend.import_data data.xlsx
+
+# optional: fill blank cells with a default
+venv/Scripts/python.exe -m backend.import_data data.csv --default-state Karnataka --stream BCA
+```
+
+Column names are matched loosely, so `College Name`, `college_name`, and
+`Name of the College` all work, as do `Email ID` / `Mobile No` / `Course`.
+Anything unrecognised is **reported and ignored** rather than guessed at.
+
+What the importer does with messy data:
+
+| Situation | Behaviour |
+| --- | --- |
+| `N/A`, `-`, `nil`, blank | treated as empty |
+| `a@x.in, b@x.in` in one cell | first becomes the contact, rest become backups |
+| Same college listed twice | merged; blanks filled, existing values kept |
+| Row with no college name | skipped and counted |
+| A "phone" that is a year or PIN code | rejected by the same validator the scraper uses |
+| Row missing an email **or** a phone | stored, visible in `/admin`, **not** in marketing or the export |
+
+Imported rows are never marked `Verified` and carry confidence `0` — nothing
+verified them. They are also safe to scrape over later: the pipeline only
+fills fields it finds empty, so it adds what is missing without overwriting
+your data.
+
 ### API endpoints
 
 ```

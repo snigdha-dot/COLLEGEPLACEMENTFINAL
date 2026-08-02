@@ -79,6 +79,13 @@ Sanity check passes (right order of magnitude, real names) but the list is
 incomplete — Karnataka has 200+ AICTE engineering colleges. That is the
 expected consequence of the Maps channel being dead.
 
+### Data loading without scraping
+`backend/import_data.py` populates the DB from an existing spreadsheet, which
+is how the UI is usable while gmaps is blocked upstream. One file may mix
+states and streams. Imported rows are never marked Verified (confidence 0),
+never preset outreach_status, and are still subject to the completeness filter.
+A later scrape fills their empty fields without overwriting anything.
+
 ### Not done
 - Phase 8: full 84-college run has NOT been executed. Cost estimate ~30
   credits/college = ~2,500 credits.
@@ -110,6 +117,10 @@ requirements.txt               — runtime deps (pytest is dev-only, not listed)
 .env.example                   — backend env template; real .env is gitignored
 backend/
 ├── main.py                    — FastAPI app: routers, CORS (fixed origin), schema init
+├── import_data.py             — CLI: load a ready-made CSV/Excel dataset straight into
+│                                the DB. Standalone — imports no pipeline module, writes
+│                                through the same repository, so it cannot break a scrape.
+│                                Completeness filter still applies to imported rows.
 ├── api/
 │   ├── deps.py                — per-request DB conn; RateLimiter for scrape/seed/export
 │   ├── colleges.py            — list/detail/edit; view=marketing|admin split
