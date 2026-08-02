@@ -22,6 +22,21 @@ filter, and export.
 - Frontend: Next.js (App Router), sonner for toasts
 
 ## Current status
+**Phase 2 complete — Karnataka seed list built and sanity-checked (2026-08-02).**
+
+### Seed list result: Karnataka / Engineering = **84 colleges**
+
+Cached at `backend/seed_lists/karnataka_engineering.csv` (gitignored).
+Channel breakdown after dedupe: 26 directory-only, 38 aggregator-only,
+20 corroborated by both. ~24 credits for the build.
+
+**Sanity check (the brief's "not 5, not 5000" gate): PASSES, with a caveat.**
+84 is the right order of magnitude and every spot-checked name is a real
+Karnataka college. But Karnataka has roughly 200+ AICTE-approved engineering
+colleges, so this list is real-but-incomplete — the expected consequence of
+the Maps channel being dead. Re-run with `SEED_ENABLE_MAPS=1` once Ollagraph's
+Apify quota is restored and the count should rise substantially.
+
 **Phase 2 in progress — seed builder built, all three channels (2026-08-02).**
 
 Ollagraph is live and the key works. ~40 credits spent so far; balance ~62,400.

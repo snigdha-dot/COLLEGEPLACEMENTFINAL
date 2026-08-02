@@ -115,14 +115,17 @@ def score_candidate(url: str, college_name: str, *, title: str = "") -> SiteCand
     name_letters = re.sub(r"[^a-z]", "", normalized)
     acronym = _acronym(college_name)
 
+    name_matched = False
     if name_letters and host_letters:
         significant = [w for w in normalized.split() if len(w) > 3]
         if any(word in host_letters for word in significant):
             candidate.score += 35
             candidate.reasons.append("college name in domain")
+            name_matched = True
         elif len(acronym) >= 3 and acronym in host_letters:
             candidate.score += 30
             candidate.reasons.append("acronym in domain")
+            name_matched = True
 
     path = urlparse(url if "://" in url else f"https://{url}").path
     if _LISTING_PATH.search(path):
@@ -134,12 +137,22 @@ def score_candidate(url: str, college_name: str, *, title: str = "") -> SiteCand
         candidate.score += 10
         candidate.reasons.append("root path")
 
+    title_matched = False
     if title:
         title_normalized = normalize_name(title)
         significant = [w for w in normalize_name(college_name).split() if len(w) > 3]
         if significant and any(w in title_normalized for w in significant):
             candidate.score += 15
             candidate.reasons.append("college name in page title")
+            title_matched = True
+
+    # Nothing tied this domain to THIS college — an educational TLD and a root
+    # path alone would otherwise clear the threshold and hand the pipeline a
+    # different college's website, which then poisons every later stage. Cap it
+    # below acceptance so the caller records a failure instead.
+    if not name_matched and not title_matched:
+        candidate.score = min(candidate.score, MIN_ACCEPTABLE_SCORE - 1)
+        candidate.reasons.append("no name match — capped below threshold")
 
     candidate.score = max(0, min(100, candidate.score))
     return candidate
