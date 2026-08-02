@@ -664,31 +664,61 @@ def merge_and_dedupe(
     collection, not here.
     """
     merged: dict[tuple[str, str], SeedCollege] = {}
+    #: name -> key, so a row with no district can still match one that has a
+    #: district. Channels disagree on this: directory tables carry a district
+    #: column, aggregator listings usually do not, and without this a college
+    #: found by both lands in the seed list twice. Observed on the live
+    #: Karnataka run: 104 rows containing 20 such duplicate pairs.
+    by_name: dict[str, tuple[str, str]] = {}
+
+    def _resolve(college: SeedCollege) -> SeedCollege | None:
+        """Find an already-merged row for this college, if any."""
+        name_key, district_key = college.key
+        if college.key in merged:
+            return merged[college.key]
+        # Only match on name alone when one side is missing a district — two
+        # colleges with the same name in DIFFERENT districts must stay apart.
+        prior = by_name.get(name_key)
+        if prior is not None:
+            prior_district = prior[1]
+            if not district_key or not prior_district:
+                return merged.get(prior)
+        return None
+
+    def _register(college: SeedCollege) -> None:
+        merged[college.key] = college
+        name_key = college.key[0]
+        # Prefer to remember the variant that HAS a district, so later
+        # district-less rows resolve against it.
+        prior = by_name.get(name_key)
+        if prior is None or (not prior[1] and college.key[1]):
+            by_name[name_key] = college.key
 
     for college in maps_results:
-        existing = merged.get(college.key)
+        existing = _resolve(college)
         if existing is None:
-            merged[college.key] = college
+            _register(college)
         else:
             existing.phone = existing.phone or college.phone
             existing.address = existing.address or college.address
             existing.website = existing.website or college.website
 
     for college in directory_results:
-        existing = merged.get(college.key)
+        existing = _resolve(college)
         if existing is None:
-            merged[college.key] = college
+            _register(college)
             continue
         # Maps entry already present: keep its phone/address, note the overlap.
         existing.affiliation = existing.affiliation or college.affiliation
+        existing.district = existing.district or college.district
         existing.source_urls = list({*existing.source_urls, *college.source_urls})
         if "directory" not in existing.source:
             existing.source = f"{existing.source}+directory"
 
     for college in aggregator_results or []:
-        existing = merged.get(college.key)
+        existing = _resolve(college)
         if existing is None:
-            merged[college.key] = college
+            _register(college)
             continue
         # Corroboration only. Deliberately touches no contact field.
         existing.source_urls = list({*existing.source_urls, *college.source_urls})

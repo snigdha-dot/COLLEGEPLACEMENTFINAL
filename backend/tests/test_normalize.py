@@ -57,6 +57,25 @@ def test_different_colleges_never_collide() -> None:
         )
 
 
+def test_place_named_colleges_keep_their_suffix() -> None:
+    """REGRESSION: "Bangalore Institute of Technology" normalized to just
+    "bangalore", which would collide with every other Bangalore-named college.
+    A place name alone is not a distinguishing word."""
+    assert normalize_name("Bangalore Institute of Technology") != "bangalore"
+    assert normalize_name("Bangalore Institute of Technology") != \
+        normalize_name("Bangalore College of Engineering")
+    assert normalize_name("Mangalore Institute of Technology and Engineering") != "mangalore"
+
+
+def test_dangling_conjunctions_removed() -> None:
+    """Stripping "Institute of Technology" from "...Technology and Management"
+    left a leading "and" in the key."""
+    key = normalize_name("Ballari Institute of Technology and Management")
+    assert not key.startswith("and ")
+    assert " and " not in key
+    assert not key.endswith(" and")
+
+
 def test_suffix_stripping_never_empties_a_name() -> None:
     """An acronym-only name must keep its suffix rather than reduce to nothing."""
     for name in ["BMS College of Engineering", "RV College of Engineering",

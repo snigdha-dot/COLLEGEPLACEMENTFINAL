@@ -100,6 +100,30 @@ def test_merge_keeps_distinct_colleges_apart() -> None:
     assert len(merged) == 2, "different colleges must not merge"
 
 
+def test_merge_matches_when_one_side_lacks_a_district() -> None:
+    """REGRESSION: directory tables carry a district column, aggregator
+    listings usually do not, so the same college arrived twice. The live
+    Karnataka build produced 104 rows containing 20 such duplicate pairs."""
+    directory = [_dir("B.M.S. COLLEGE OF ENGINEERING", district="BENGALURU")]
+    aggregator = [_agg("BMS College of Engineering, Bangalore", district="")]
+
+    merged = merge_and_dedupe([], directory, aggregator)
+    assert len(merged) == 1, f"district mismatch split the college: {merged}"
+    assert merged[0].district == "BENGALURU", "the known district should be kept"
+    assert "directory" in merged[0].source and "aggregator" in merged[0].source
+
+
+def test_merge_still_separates_two_districts_when_both_known() -> None:
+    """The district-less match must not weaken the real geographic split."""
+    merged = merge_and_dedupe(
+        [],
+        [_dir("Government Engineering College", district="Hassan"),
+         _dir("Government Engineering College", district="Ramanagara")],
+        [],
+    )
+    assert len(merged) == 2
+
+
 def test_merge_separates_same_name_in_different_districts() -> None:
     merged = merge_and_dedupe(
         [_maps("Government Engineering College", district="Hassan")],

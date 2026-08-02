@@ -87,16 +87,31 @@ def _collapse_initialisms(text: str) -> str:
     )
 
 
+#: Place names that are common college-name prefixes in Karnataka. A name
+#: reduced to one of these alone is not distinctive: "Bangalore Institute of
+#: Technology" must not normalize to "bangalore", which would collide with
+#: every other Bangalore-named college.
+_PLACE_WORDS = frozenset({
+    "bangalore", "bengaluru", "mysore", "mysuru", "mangalore", "mangaluru",
+    "belgaum", "belagavi", "hubli", "hubballi", "dharwad", "gulbarga",
+    "kalaburagi", "davangere", "shimoga", "shivamogga", "tumkur", "tumakuru",
+    "bellary", "ballari", "bijapur", "vijayapura", "udupi", "manipal",
+    "hassan", "mandya", "kolar", "bidar", "raichur", "koppal", "gadag",
+    "haveri", "chitradurga", "karnataka", "east", "west", "north", "south",
+    "new", "central", "city", "rural", "urban",
+})
+
+
 def _significant_words(text: str) -> list[str]:
     """Words that actually distinguish one college from another.
 
-    A bare acronym does not count on its own: if stripping a suffix would
-    reduce a name to just "bms", that suffix was carrying the distinction and
-    must be kept.
+    Excludes bare acronyms and place names: if stripping a suffix would reduce
+    a name to just "bms" or just "bangalore", that suffix was carrying the
+    distinction and must be kept.
     """
     return [
         w for w in text.split()
-        if w not in _NOISE_WORDS and len(w) > 3
+        if w not in _NOISE_WORDS and len(w) > 3 and w not in _PLACE_WORDS
     ]
 
 
@@ -140,6 +155,12 @@ def normalize_name(name: str) -> str:
 
     words = [w for w in text.split() if w not in _NOISE_WORDS]
     result = _WS.sub(" ", " ".join(words)).strip()
+
+    # Suffix removal can leave a dangling conjunction ("Ballari Institute of
+    # Technology and Management" -> "ballari and management"). Drop leading and
+    # trailing connectives so the key reads cleanly.
+    result = re.sub(r"^(and|&)\s+|\s+(and|&)$", "", result).strip()
+    result = re.sub(r"\s+and\s+", " ", result).strip()
 
     # Same guard after noise-word removal.
     return result if result else _WS.sub(" ", text).strip()
