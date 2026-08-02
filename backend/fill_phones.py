@@ -238,11 +238,26 @@ async def fill_one(client: OllagraphClient, row: Any) -> FillResult:
         result.phone = phones[0]
         result.extra_phones = phones[1:6]
     if emails:
-        # Placement addresses first, so the stored contact is the best one.
-        ranked = sorted(
-            emails,
-            key=lambda e: 0 if re.match(r"(tpo|placement|training|career|spo|cdc)", e) else 1,
-        )
+        # Rank by (on the college's own domain, then placement-specific).
+        #
+        # Domain first, because a page can carry any number of unrelated
+        # addresses: Chennai Institute of Technology picked up
+        # "tondiarpettaluk81@gmail.com" — someone's personal Gmail that
+        # happened to appear on the page — while its own domain was available.
+        # Free mail is NOT rejected outright: many government colleges
+        # genuinely publish a Gmail address as their only contact.
+        host = _domain(result.website)
+        stem = host.split(".")[0] if host else ""
+
+        def rank(address: str) -> tuple[int, int]:
+            domain = address.split("@")[-1]
+            on_domain = 0 if (host and (domain == host or domain.endswith(f".{host}")
+                                        or (stem and len(stem) > 3 and stem in domain))) else 1
+            placement = 0 if re.match(
+                r"(tpo|placement|training|career|spo|cdc)", address) else 1
+            return (on_domain, placement)
+
+        ranked = sorted(emails, key=rank)
         result.email = ranked[0]
         result.extra_emails = ranked[1:6]
     if phones or emails:
