@@ -307,18 +307,21 @@ class OllagraphClient:
             "/v1/scrape/smart", {"url": url, "format": format, "timeout": timeout}
         )
 
-    async def crawl(
+    async def crawl_start(
         self, url: str, *, max_pages: int = 40, depth: int = 3,
         concurrency: int = 5, respect_robots: bool = True,
-    ) -> dict[str, Any]:
-        """Crawl a site from a seed URL.
+    ) -> str:
+        """Queue a crawl job and return its job_id.
 
-        The spec exposes depth and max_pages, which implies link-following.
-        Prior hand-testing reported only the seed page coming back; the brief
-        says confirm rather than assume, so phase 3 checks this empirically
-        before any fallback crawler is considered.
+        /v1/crawl is ASYNCHRONOUS — confirmed 2026-08-02. It responds
+        {"status": "queued", "job_id": ...} and does no crawling inline. This
+        very likely explains the brief's prior finding that crawl "did not
+        follow internal links beyond the seed page": the caller read the
+        immediate response, which contains no pages at all.
+
+        Results come from get_job(job_id) once status is "completed".
         """
-        return await self._post(
+        response = await self._post(
             "/v1/crawl",
             {
                 "url": url,
@@ -327,6 +330,63 @@ class OllagraphClient:
                 "concurrency": concurrency,
                 "respect_robots": respect_robots,
             },
+        )
+        job_id = response.get("job_id")
+        if not job_id:
+            raise OllagraphError(
+                f"/v1/crawl did not return a job_id: {str(response)[:200]}",
+                endpoint="/v1/crawl",
+            )
+        return job_id
+
+    async def get_job(self, job_id: str) -> dict[str, Any]:
+        """Fetch an async job's state. GET, and free — no credits charged."""
+        async with self._sem:
+            response = await self._client.get(f"/v1/jobs/{job_id}")
+        if response.status_code in (401, 403):
+            raise OllagraphAuthError(
+                f"auth failed ({response.status_code}) polling job {job_id}",
+                status=response.status_code, endpoint="/v1/jobs",
+            )
+        if response.status_code >= 400:
+            raise OllagraphError(
+                f"/v1/jobs/{job_id} returned {response.status_code}",
+                status=response.status_code, endpoint="/v1/jobs",
+            )
+        return response.json()
+
+    async def crawl(
+        self, url: str, *, max_pages: int = 40, depth: int = 3,
+        concurrency: int = 5, respect_robots: bool = True,
+        poll_interval: float = 5.0, timeout: float = 300.0,
+    ) -> dict[str, Any]:
+        """Crawl a site and wait for the result.
+
+        Convenience wrapper over crawl_start + polling. Returns the job's
+        `result` payload, which carries `urls` and `pages_crawled` (NOT `pages`
+        or `results` — verified against a live job).
+        """
+        job_id = await self.crawl_start(
+            url, max_pages=max_pages, depth=depth,
+            concurrency=concurrency, respect_robots=respect_robots,
+        )
+
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            await asyncio.sleep(poll_interval)
+            job = await self.get_job(job_id)
+            status = job.get("status")
+            if status == "completed":
+                return job.get("result") or {}
+            if status in ("failed", "error", "cancelled"):
+                raise OllagraphError(
+                    f"crawl job {job_id} ended as {status}: {str(job)[:200]}",
+                    endpoint="/v1/crawl",
+                )
+
+        raise OllagraphError(
+            f"crawl job {job_id} did not finish within {timeout:g}s",
+            endpoint="/v1/crawl",
         )
 
     # --- extraction --------------------------------------------------------

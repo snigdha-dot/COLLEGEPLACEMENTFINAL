@@ -1,24 +1,41 @@
 """FALLBACK — breadth-first crawler over a college site.
 
-STATUS: INERT. Not wired into the pipeline. Do not import this from the main
-path.
+STATUS: PER-SITE FALLBACK as of 2026-08-02. Not the default path.
 
-Ollagraph `/v1/crawl` is the primary crawl stage. This module is the reserve
-implementation (the prior `human_crawl.py` logic), to be wired in only if the
-pilot confirms Ollagraph's crawl is insufficient.
+The brief expected `/v1/crawl` to be unusable. Live testing shows that is only
+sometimes true, so this is wired in per-site rather than globally:
 
-WIRE-IN TRIGGER (phase 4): /v1/crawl returns only the seed page and does not
-follow internal links. Prior hand-testing saw exactly this, but the brief is
-explicit — CONFIRM on the pilot, do not assume. Ollagraph may have changed.
+    bmsce.ac.in    -> pages_crawled: 20  (hit the max_pages limit)
+    nitte.edu.in   -> pages_crawled: 20  (hit the max_pages limit)
+    rvce.edu.in    -> pages_crawled: 1   (seed only, 197ms — bot protection)
+    sit.ac.in      -> HTTP 400 "Domain does not resolve"
 
-If wired in: BFS the site, prioritising placement-related paths, and fetch each
-candidate page through Ollagraph `/v1/scrape` (not `/v1/scrape/batch`, which
-returned titles only).
+So `/v1/crawl` DOES follow internal links on most sites and should stay the
+primary crawl stage. What it needs is a guard: when a crawl comes back with
+one page (or fails) on a site whose homepage clearly has internal links, this
+BFS crawler takes over for that college only.
+
+One real gotcha, and probably what the earlier hand-testing hit: `/v1/crawl`
+is ASYNCHRONOUS. It replies {"status": "queued", "job_id": ...} and crawls
+nothing inline — a caller reading that immediate response sees no pages and
+would reasonably conclude the endpoint is broken. Results come from
+GET /v1/jobs/{job_id}, and the payload field is `urls`, not `pages`.
+
+This crawler fetches each page through `/v1/scrape` (1 credit, full HTML with
+format="html"). Deliberately NOT `/v1/scrape/batch`, which the brief records as
+returning page titles only.
 """
 
 from __future__ import annotations
 
-from .discovery import FallbackNotWired
+import asyncio
+import logging
+import re
+from urllib.parse import urldefrag, urljoin, urlparse
+
+from .ollagraph_client import OllagraphClient, OllagraphError
+
+log = logging.getLogger(__name__)
 
 #: URL path fragments that suggest a placement / TPO page. Crawl priority
 #: ordering, highest signal first. Reference data, safe to keep here.
@@ -47,18 +64,134 @@ SKIP_EXTENSIONS: frozenset[str] = frozenset({
     ".mp4", ".mp3", ".avi",
 })
 
-DEFAULT_MAX_DEPTH = 3
-DEFAULT_MAX_PAGES = 40
+DEFAULT_MAX_DEPTH = 2
+DEFAULT_MAX_PAGES = 12
+
+_HREF = re.compile(r"""<a\s[^>]*href\s*=\s*["']([^"'#]+)""", re.IGNORECASE)
 
 
-def crawl_site(base_url: str, max_depth: int = DEFAULT_MAX_DEPTH,
-               max_pages: int = DEFAULT_MAX_PAGES) -> list[str]:
+class CrawledPage:
+    """One fetched page plus why the crawler thought it was worth fetching."""
+
+    __slots__ = ("url", "html", "depth", "priority")
+
+    def __init__(self, url: str, html: str, depth: int, priority: int) -> None:
+        self.url = url
+        self.html = html
+        self.depth = depth
+        self.priority = priority
+
+    def __repr__(self) -> str:
+        return f"CrawledPage({self.url!r}, depth={self.depth}, priority={self.priority})"
+
+
+def _same_site(candidate: str, base_domain: str) -> bool:
+    host = urlparse(candidate).netloc.lower()
+    host = host[4:] if host.startswith("www.") else host
+    base = base_domain[4:] if base_domain.startswith("www.") else base_domain
+    return host == base or host.endswith(f".{base}")
+
+
+def link_priority(url: str) -> int:
+    """How promising a URL looks for finding placement contacts.
+
+    Higher is better; 0 means "not worth a credit". Ordering matters because
+    the page budget is small — each fetch costs a credit, and a college site
+    can have hundreds of pages.
+    """
+    path = urlparse(url).path.lower()
+    if any(path.endswith(ext) for ext in SKIP_EXTENSIONS):
+        return 0
+    for index, hint in enumerate(PLACEMENT_PATH_HINTS):
+        if hint in path:
+            # Earlier hints are stronger signals; PLACEMENT_PATH_HINTS is
+            # ordered highest-signal-first.
+            return len(PLACEMENT_PATH_HINTS) - index
+    return 0
+
+
+def extract_links(html: str, base_url: str) -> list[str]:
+    """Absolute, same-site, deduplicated links from a page."""
+    base_domain = urlparse(base_url).netloc.lower()
+    seen: dict[str, None] = {}
+    for match in _HREF.finditer(html):
+        href = match.group(1).strip()
+        if not href or href.startswith(("mailto:", "tel:", "javascript:", "data:")):
+            continue
+        absolute, _ = urldefrag(urljoin(base_url, href))
+        if absolute.startswith(("http://", "https://")) and _same_site(absolute, base_domain):
+            seen.setdefault(absolute, None)
+    return list(seen)
+
+
+async def crawl_site(
+    client: OllagraphClient,
+    base_url: str,
+    *,
+    max_depth: int = DEFAULT_MAX_DEPTH,
+    max_pages: int = DEFAULT_MAX_PAGES,
+) -> list[CrawledPage]:
     """BFS a college site for placement-related pages.
 
-    NOT IMPLEMENTED — inert by design. Port the prior human_crawl.py logic here
-    only if phase 4 confirms /v1/crawl does not follow internal links.
+    Fetches the seed page, then follows only links whose path suggests
+    placement/contact content, best-first. The budget is deliberately small:
+    every page costs a credit, and beyond a dozen pages the yield drops sharply
+    while the bill does not.
+
+    Returns pages in fetch order (seed first), each with raw HTML so the
+    Cloudflare decoder can run over it if needed.
     """
-    raise FallbackNotWired(
-        "crawl fallback is inert; Ollagraph /v1/crawl is the primary path. "
-        "Confirm /v1/crawl's link-following behavior on the pilot before wiring this in."
-    )
+    pages: list[CrawledPage] = []
+    visited: set[str] = set()
+
+    try:
+        seed_response = await client.scrape(base_url, format="html")
+    except OllagraphError as exc:
+        log.warning("crawl seed %s failed: %s", base_url, exc)
+        return pages
+
+    seed_html = seed_response.get("content") or ""
+    visited.add(base_url.rstrip("/"))
+    pages.append(CrawledPage(base_url, seed_html, depth=0, priority=99))
+
+    if not seed_html or max_depth < 1:
+        return pages
+
+    # (priority, depth, url) — highest priority first, shallowest as tiebreak.
+    frontier: list[tuple[int, int, str]] = []
+    for link in extract_links(seed_html, base_url):
+        priority = link_priority(link)
+        if priority > 0 and link.rstrip("/") not in visited:
+            frontier.append((priority, 1, link))
+    frontier.sort(key=lambda item: (-item[0], item[1]))
+
+    while frontier and len(pages) < max_pages:
+        priority, depth, url = frontier.pop(0)
+        normalized = url.rstrip("/")
+        if normalized in visited:
+            continue
+        visited.add(normalized)
+
+        try:
+            response = await client.scrape(url, format="html")
+        except OllagraphError as exc:
+            log.debug("crawl page %s failed: %s", url, exc)
+            continue
+
+        html = response.get("content") or ""
+        if not html:
+            continue
+        pages.append(CrawledPage(url, html, depth=depth, priority=priority))
+
+        if depth < max_depth:
+            additions: list[tuple[int, int, str]] = []
+            for link in extract_links(html, base_url):
+                child_priority = link_priority(link)
+                if child_priority > 0 and link.rstrip("/") not in visited:
+                    additions.append((child_priority, depth + 1, link))
+            if additions:
+                frontier.extend(additions)
+                frontier.sort(key=lambda item: (-item[0], item[1]))
+
+    log.info("crawled %d pages from %s", len(pages), base_url)
+    return pages
