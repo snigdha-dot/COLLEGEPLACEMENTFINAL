@@ -146,6 +146,142 @@ def test_colleges_from_tables_skips_short_junk_rows() -> None:
     assert [c.college_name for c in out] == ["Valid Engineering College Name"]
 
 
+def _agg(name: str, district: str = "Bengaluru Urban", **kw) -> SeedCollege:
+    return SeedCollege(college_name=name, state="Karnataka", stream="Engineering",
+                       district=district, source="aggregator", **kw)
+
+
+def test_clean_listing_name_strips_decoration() -> None:
+    cases = [
+        ("RV College of Engineering - Admission 2026, Fees, Cutoff",
+         "RV College of Engineering"),
+        ("12. BMS College of Engineering", "BMS College of Engineering"),
+        ("Dayananda Sagar College of Engineering (Bangalore)",
+         "Dayananda Sagar College of Engineering"),
+        ("  Nitte   Meenakshi Institute of Technology  ",
+         "Nitte Meenakshi Institute of Technology"),
+    ]
+    for raw, expected in cases:
+        assert sb.clean_listing_name(raw) == expected, f"{raw!r} -> {sb.clean_listing_name(raw)!r}"
+
+
+def test_clean_listing_name_rejects_non_institutions() -> None:
+    """Navigation links and article titles must not become seed rows."""
+    for junk in ["Home", "Login / Register", "Read More", "Top 10 Courses After 12th",
+                 "Privacy Policy", "About Us", "2026", "", "Compare Colleges"]:
+        assert sb.clean_listing_name(junk) == "", f"should reject {junk!r}"
+
+
+def test_college_of_pattern_survives_category_filter() -> None:
+    """REGRESSION: the category rule `colleges?\\s+(in|of|...)` matched
+    "College of Engineering" — the most common Indian college naming pattern —
+    and silently rejected real colleges. Recovering these raised the live
+    Karnataka yield from 52 to 66."""
+    for name in [
+        "BMS College of Engineering",
+        "RV College of Engineering",
+        "Dayananda Sagar College of Engineering",
+        "University of Visvesvaraya College of Engineering",
+        "Sri Jayachamarajendra College of Engineering",
+    ]:
+        assert sb.clean_listing_name(name) == name, f"real college rejected: {name!r}"
+
+
+def test_plural_category_headings_still_rejected() -> None:
+    """The singular/plural distinction is what separates these from the above."""
+    for junk in [
+        "Engineering Colleges in Pune",
+        "Engineering Colleges in India Accepting GATE",
+        "Top Colleges in India",
+        "Universities in Karnataka",
+        "KCET College Predictor",
+        "Civil Engineering",
+    ]:
+        assert sb.clean_listing_name(junk) == "", f"category leaked through: {junk!r}"
+
+
+def test_acronym_only_colleges_are_kept() -> None:
+    """An initialism is a valid distinguishing token — "RV" and "BMS" are the
+    only non-generic word in those names, and dropping them loses real leads."""
+    for name in ["RV College of Engineering", "BMS College of Engineering",
+                 "PES University, Bangalore"]:
+        assert sb.clean_listing_name(name), f"acronym-named college dropped: {name!r}"
+
+
+def test_alias_prefix_stripped_only_when_it_is_an_alias() -> None:
+    assert sb.clean_listing_name(
+        "MSRIT Bangalore - Ramaiah Institute of Technology, Bangalore"
+    ) == "Ramaiah Institute of Technology, Bangalore"
+    assert sb.clean_listing_name(
+        "SIT Tumkur - Siddaganga Institute of Technology, Tumkur"
+    ) == "Siddaganga Institute of Technology, Tumkur"
+    # Not an alias pattern: the first half is itself the college name.
+    assert sb.clean_listing_name("RV College of Engineering - Fees") == \
+        "RV College of Engineering"
+
+
+def test_plausibly_in_state_rejects_foreign_and_other_states() -> None:
+    for name in ["Massachusetts Institute of Technology", "Stanford University",
+                 "Brunel University", "Edge Hill University"]:
+        assert not sb.plausibly_in_state(name, "Karnataka"), f"foreign kept: {name!r}"
+
+
+def test_plausibly_in_state_keeps_local_and_placeless_names() -> None:
+    """Most real college names carry no place at all, so a missing place must
+    not be treated as disqualifying."""
+    for name in ["Siddaganga Institute of Technology",
+                 "RV College of Engineering, Bengaluru",
+                 "Manipal Institute of Technology, Manipal",
+                 "National Institute of Technology Karnataka Surathkal"]:
+        assert sb.plausibly_in_state(name, "Karnataka"), f"local rejected: {name!r}"
+
+
+def test_aggregator_host_detection() -> None:
+    assert sb.is_aggregator("https://collegedunia.com/engineering/karnataka")
+    assert sb.is_aggregator("https://www.shiksha.com/b-tech/colleges/karnataka")
+    assert not sb.is_aggregator("https://vtu.ac.in/affiliated-institute")
+
+
+def test_aggregator_data_never_overwrites_trusted_contacts() -> None:
+    """The trust boundary: aggregator rows contribute names, never contacts."""
+    maps = [_maps("RV College of Engineering", phone="+91-80-REAL", address="Real Address")]
+    # Even if an aggregator row somehow carried contact data, merging must not
+    # let it touch the Maps-sourced fields.
+    aggregator = [_agg("R.V. College of Engineering", phone="+91-WRONG",
+                       address="Wrong Address", website="https://wrong.example")]
+
+    merged = merge_and_dedupe(maps, [], aggregator)
+    assert len(merged) == 1
+    row = merged[0]
+    assert row.phone == "+91-80-REAL", "aggregator overwrote a trusted phone"
+    assert row.address == "Real Address", "aggregator overwrote a trusted address"
+    assert row.website != "https://wrong.example"
+    assert "aggregator" in row.source
+
+
+def test_aggregator_only_rows_have_no_contact_data() -> None:
+    """A college known only from an aggregator starts with empty contacts."""
+    merged = merge_and_dedupe([], [], [_agg("Some College of Engineering")])
+    assert len(merged) == 1
+    assert merged[0].phone == ""
+    assert merged[0].website == ""
+    assert merged[0].address == ""
+
+
+def test_candidate_names_extracted_from_headings_and_links() -> None:
+    html = """
+      <h2>RV College of Engineering - Fees</h2>
+      <a href="/x">BMS College of Engineering</a>
+      <a href="/login">Login</a>
+      <h3>Top Courses After 12th</h3>
+    """
+    names = [sb.clean_listing_name(n) for n in sb._candidate_names_from_html(html)]
+    kept = [n for n in names if n]
+    assert "RV College of Engineering" in kept
+    assert "BMS College of Engineering" in kept
+    assert all("Login" not in n for n in kept)
+
+
 def test_cache_round_trip_and_ttl(tmp_dir: Path | None = None) -> None:
     original = sb.SEED_LIST_DIR
     with tempfile.TemporaryDirectory() as tmp:
