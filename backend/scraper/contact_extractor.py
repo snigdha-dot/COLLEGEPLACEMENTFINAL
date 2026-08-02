@@ -196,6 +196,31 @@ def normalize_phone(raw: str) -> str:
     return f"+91-{digits}" if len(digits) == 10 else digits
 
 
+#: /v1/extract/contacts wraps each result in an object rather than returning
+#: bare strings, and the key is NOT "value" — verified against a live response
+#: (2026-08-02):
+#:   emails: {"address": "placement@reva.edu.in", "is_noreply": false}
+#:   phones: {"raw": "+91-80-46966966", "normalized": "+918046966966", ...}
+#: Reading the wrong key silently discarded every contact and made three
+#: colleges report "no contact details found" when the API had returned nine
+#: addresses including the TPO's. Several key names are accepted so a change in
+#: the response shape degrades rather than fails silently.
+_EMAIL_KEYS = ("address", "email", "value")
+_PHONE_KEYS = ("normalized", "raw", "number", "phone", "value")
+
+
+def _unwrap(item: Any, keys: tuple[str, ...]) -> str | None:
+    """Pull the contact string out of a bare string or a wrapper object."""
+    if isinstance(item, str):
+        return item
+    if isinstance(item, dict):
+        for key in keys:
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    return None
+
+
 def extract_and_score(
     ollagraph_contacts: dict[str, Any],
     *,
@@ -217,7 +242,7 @@ def extract_and_score(
 
     seen_emails: dict[str, None] = {}
     for email in [*raw_emails, *extra_emails]:
-        value = email.get("value") if isinstance(email, dict) else email
+        value = _unwrap(email, _EMAIL_KEYS)
         if isinstance(value, str) and "@" in value:
             seen_emails.setdefault(value.strip().lower(), None)
 
@@ -228,7 +253,7 @@ def extract_and_score(
 
     seen_phones: dict[str, None] = {}
     for phone in raw_phones:
-        value = phone.get("value") if isinstance(phone, dict) else phone
+        value = _unwrap(phone, _PHONE_KEYS)
         if isinstance(value, str):
             normalized = normalize_phone(value)
             if normalized:

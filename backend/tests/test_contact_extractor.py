@@ -123,12 +123,44 @@ def test_extract_and_score_sorts_by_confidence() -> None:
     assert [p.value for p in phones] == ["+91-9876543210"], "junk phone not filtered"
 
 
-def test_extract_and_score_handles_dict_shaped_values() -> None:
-    """/v1/extract/contacts may return objects rather than bare strings."""
-    response = {"emails": [{"value": "tpo@x.ac.in"}], "phones": [{"value": "9876543210"}]}
-    emails, phones = extract_and_score(response)
-    assert emails[0].value == "tpo@x.ac.in"
-    assert phones[0].value == "+91-9876543210"
+def test_extract_and_score_parses_real_api_response_shape() -> None:
+    """REGRESSION: /v1/extract/contacts wraps results in objects keyed
+    "address" and "raw"/"normalized" — NOT "value". Reading the wrong key
+    silently discarded every contact, and three pilot colleges reported "no
+    contact details found" while the API had returned nine addresses including
+    the TPO's. This is the exact live payload shape (2026-08-02)."""
+    response = {
+        "emails": [
+            {"address": "admissions@reva.edu.in", "is_noreply": False},
+            {"address": "placement@reva.edu.in", "is_noreply": False},
+            {"address": "info@reva.edu.in", "is_noreply": False},
+        ],
+        "phones": [
+            {"raw": "+91-80-46966966", "normalized": "+918046966966",
+             "is_e164_shape": True},
+        ],
+    }
+    emails, phones = extract_and_score(
+        response, page_url="https://www.reva.edu.in/placement",
+        college_domain="reva.edu.in",
+    )
+    values = [e.value for e in emails]
+    assert "placement@reva.edu.in" in values, "TPO address was dropped"
+    assert emails[0].value == "placement@reva.edu.in", "placement must sort first"
+    assert len(phones) == 1 and phones[0].value.endswith("8046966966")
+
+
+def test_extract_and_score_handles_alternative_key_names() -> None:
+    """Bare strings and other plausible key names still work, so a change in
+    the response shape degrades rather than silently returning nothing."""
+    for payload in (
+        {"emails": ["tpo@x.ac.in"], "phones": ["9876543210"]},
+        {"emails": [{"email": "tpo@x.ac.in"}], "phones": [{"number": "9876543210"}]},
+        {"emails": [{"value": "tpo@x.ac.in"}], "phones": [{"value": "9876543210"}]},
+    ):
+        emails, phones = extract_and_score(payload)
+        assert emails and emails[0].value == "tpo@x.ac.in", payload
+        assert phones and phones[0].value == "+91-9876543210", payload
 
 
 def test_extract_and_score_dedupes_and_merges_extra_emails() -> None:
