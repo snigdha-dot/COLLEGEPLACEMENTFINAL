@@ -370,6 +370,12 @@ AGGREGATOR_HOSTS = (
     "collegedekho.com", "targetstudy.com", "zollege.in", "collegesearch.in",
 )
 
+#: Badge/label text listing pages prepend to a name ("Featured RV University").
+_BADGE_PREFIX = re.compile(
+    r"^(featured|sponsored|promoted|new|popular|trending|verified|ad)\s+",
+    re.IGNORECASE,
+)
+
 #: Trailing noise that aggregator listings append to college names.
 _LISTING_NOISE = re.compile(
     r"\s*[-–—,:|]\s*(admission|fees?|cutoff|placement|ranking|review|course|"
@@ -408,6 +414,10 @@ _CATEGORY_PATTERNS = (
     # Degree/course names
     re.compile(r"^\s*(b\.?\s?tech|m\.?\s?tech|b\.?\s?e\b|m\.?\s?e\b|b\.?\s?sc|"
                r"m\.?\s?sc|bca|mca|mba|diploma|phd|certificate)\b", re.IGNORECASE),
+    # Call-to-action phrases: "Write a college review", "Find your college"
+    re.compile(r"^\s*(write|find|search|get|see|check|apply|download|read|view|"
+               r"add|submit|claim|register|join|start|know|discover)\b",
+               re.IGNORECASE),
 )
 
 #: A real college name carries a distinguishing proper noun ("R.V.", "Nitte",
@@ -434,6 +444,7 @@ def clean_listing_name(raw: str) -> str:
     dropped rather than seeded.
     """
     name = re.sub(r"\s+", " ", raw).strip().strip("|-–—:,")
+    name = _BADGE_PREFIX.sub("", name).strip()
     name = _LISTING_NOISE.sub("", name).strip()
     name = _strip_alias_prefix(name)
     name = re.sub(r"^\d+[\.\)]\s*", "", name)          # leading "12. "

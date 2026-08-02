@@ -200,6 +200,23 @@ def test_plural_category_headings_still_rejected() -> None:
         assert sb.clean_listing_name(junk) == "", f"category leaked through: {junk!r}"
 
 
+def test_badge_prefixes_stripped() -> None:
+    """Listing pages prepend "Featured"/"Sponsored" to promoted entries."""
+    assert sb.clean_listing_name("Featured RV University Mysore Road, Bangalore") == \
+        "RV University Mysore Road, Bangalore"
+    assert sb.clean_listing_name("Sponsored Acharya Institute of Technology") == \
+        "Acharya Institute of Technology"
+
+
+def test_call_to_action_phrases_rejected() -> None:
+    """"Write a college review" contains "college" and a distinctive token, so
+    only a verb-phrase rule keeps it out of the seed list."""
+    for junk in ["Write a college review", "Find your dream college",
+                 "Compare colleges now", "Download college brochure",
+                 "Apply to this institute"]:
+        assert sb.clean_listing_name(junk) == "", f"CTA leaked through: {junk!r}"
+
+
 def test_acronym_only_colleges_are_kept() -> None:
     """An initialism is a valid distinguishing token — "RV" and "BMS" are the
     only non-generic word in those names, and dropping them loses real leads."""

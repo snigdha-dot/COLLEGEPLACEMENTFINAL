@@ -22,6 +22,40 @@ filter, and export.
 - Frontend: Next.js (App Router), sonner for toasts
 
 ## Current status
+**Phase 2 in progress — seed builder built, all three channels (2026-08-02).**
+
+Ollagraph is live and the key works. ~40 credits spent so far; balance ~62,400.
+
+### What live testing established (do not re-derive)
+
+| Endpoint | Result | Cost |
+|---|---|---|
+| `/health` | ok | free |
+| `/v1/search` | works, real results | 3 cr |
+| `/v1/search` with `site:` | **502 every time**, 3 retries | — |
+| `/v1/scrape` (`format=html`) | works, full raw HTML | 1 cr |
+| `/v1/scrape/smart` | works, same output as scrape here | 1 cr |
+| `/v1/extract/tables` | works, but found 0 tables on VTU | 1 cr |
+| `/v1/actors/gmaps/*` | **BLOCKED upstream** | 30 cr |
+
+- **gmaps is dead upstream.** Returns HTTP 200 with `ok:false` and
+  `apify HTTP 402: not-enough-usage-to-run-paid-actor` — Ollagraph's own Apify
+  account has ~$0.27 left. Charges 30 credits/call anyway; refunds arrive
+  asynchronously (balance recovered 62412 -> 62439). Not fixable from our side.
+  Re-enable with `SEED_ENABLE_MAPS=1` once Ollagraph tops it up.
+- **The directory approach doesn't work for Karnataka.** `vtu.ac.in/affiliated-institute`
+  is the best source `/v1/search` surfaced, but it has **zero `<table>` elements**
+  under both `/v1/scrape` and `/v1/scrape/smart` — it's an affiliation-process
+  page, not a college directory. Its PDFs are regulations, not lists. Kept in
+  the code because other states may genuinely publish tables.
+- **Aggregators are now the only working name source**, authorised by the
+  maintainer as a NAME source only (2026-08-02). Contacts from them are
+  discarded at collection.
+- `/v1/crawl` accepts `depth` (default 3) and `max_pages` (default 500),
+  which implies it *does* follow links, contradicting the brief's prior
+  finding. **Still unverified** — confirm in phase 3 before wiring the
+  fallback crawler.
+
 **Phase 1 complete — DB schema + inert fallback stubs (2026-08-02).**
 
 Pilot state for phases 2–4: **Karnataka** (chosen because ~437 colleges
@@ -49,7 +83,7 @@ is allowed to start.
 ## Build order and progress
 - [x] 0. Scaffolding — AGENTS.md, context.md, README, git, venv, deps, frontend
 - [x] 1. DB schema + models; inert fallback stubs
-- [ ] 2. Master list builder, pilot state only (Karnataka)
+- [~] 2. Master list builder — built (3 channels); count sanity check pending
 - [ ] 3. Ollagraph-only pipeline, end-to-end on pilot
 - [ ] 4. Evaluate pilot stage-by-stage; wire fallbacks only where needed
 - [ ] 5. Excel/CSV export — marketing schema + completeness filter
