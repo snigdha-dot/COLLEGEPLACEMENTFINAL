@@ -418,6 +418,15 @@ _CATEGORY_PATTERNS = (
     re.compile(r"^\s*(write|find|search|get|see|check|apply|download|read|view|"
                r"add|submit|claim|register|join|start|know|discover)\b",
                re.IGNORECASE),
+    # Page headings that append a section name to a real college name:
+    # "Christ University Placements", "Kristu Jayanti College Admission",
+    # "Vignan's Institute of Information Technology Fees". These name a page,
+    # not an institution, and slipped through because they contain both an
+    # institution word and a distinctive proper noun.
+    re.compile(r"\b(placements?|admissions?|courses?|fees|cutoffs?|reviews?|"
+               r"rankings?|results?|news|blog|gallery|scholarships?|"
+               r"eligibility|infrastructure|facilities|hostel)\s*$",
+               re.IGNORECASE),
 )
 
 #: A real college name carries a distinguishing proper noun ("R.V.", "Nitte",

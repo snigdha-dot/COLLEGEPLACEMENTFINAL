@@ -241,6 +241,27 @@ def test_call_to_action_phrases_rejected() -> None:
         assert sb.clean_listing_name(junk) == "", f"CTA leaked through: {junk!r}"
 
 
+def test_page_headings_with_a_real_college_name_are_rejected() -> None:
+    """REGRESSION: "Christ University Placements" and "Kristu Jayanti College
+    Admission" were seeded as colleges and scraped. They name a PAGE, not an
+    institution, and passed every filter because they contain both an
+    institution word and a distinctive proper noun."""
+    for junk in [
+        "Christ University Placements",
+        "Kristu Jayanti College Admission",
+        "Presidency College Admission",
+        "REVA University Courses",
+        "BMS College of Engineering Reviews",
+        "Vignan Institute of Information Technology Fees",
+    ]:
+        assert sb.clean_listing_name(junk) == "", f"page heading seeded: {junk!r}"
+
+    # The same colleges without the section word must still be accepted.
+    for real in ["Christ University", "Kristu Jayanti College",
+                 "BMS College of Engineering", "REVA University, Bangalore"]:
+        assert sb.clean_listing_name(real) == real, f"real college rejected: {real!r}"
+
+
 def test_acronym_only_colleges_are_kept() -> None:
     """An initialism is a valid distinguishing token — "RV" and "BMS" are the
     only non-generic word in those names, and dropping them loses real leads."""
