@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.local
+
+# Python
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+
+# Databases (SQLite is the working DB, regenerable by re-running the pipeline)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Regenerable caches, not source
+backend/seed_lists/*.csv
+
+# Generated exports
+exports/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
