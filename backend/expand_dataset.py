@@ -139,6 +139,7 @@ def _store(result: Any) -> None:
 async def run(
     *, target: int, dry_run: bool = False, concurrency: int = 2,
     credit_cap: float = 5000, force_refresh: bool = False,
+    pause: float = 0.0,
 ) -> None:
     start = marketing_count()
     start_db = db_count()
@@ -188,6 +189,16 @@ async def run(
             async with semaphore:
                 if stop.is_set():
                     return
+
+                # Deliberate pacing. A run at concurrency 2 with no delay drew
+                # 508 rate-limit errors and dropped the completion rate to 7%:
+                # colleges found their correct website but every extraction call
+                # was refused, so they were recorded as failures. Going slower is
+                # faster in practice, because throttled calls cost credits and
+                # produce nothing.
+                if pause:
+                    await asyncio.sleep(pause)
+
                 try:
                     result = await process_college(client, seed)
                 except CreditCapExceeded:
@@ -202,6 +213,19 @@ async def run(
                 # exists and was attempted, and the admin view can show it.
                 _store(result)
                 added += 1
+
+                # Bail out if the completion rate collapses. A throttled run
+                # keeps charging for refused calls while producing almost
+                # nothing, so it is better to stop and report than to grind on.
+                if added >= 25 and complete / added < 0.20:
+                    print(
+                        f"\nABORTING: only {complete}/{added} colleges completed "
+                        f"({complete / added * 100:.0f}%). That is the rate-limit "
+                        f"signature, not missing data — retry later or raise --pause."
+                    )
+                    stop.set()
+                    return
+
                 email = result.placement_email or result.fallback_contact_email
                 phone = result.placement_phone or result.fallback_contact_phone
                 if email and phone:
@@ -234,7 +258,7 @@ async def run(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--target", type=int, default=500,
-                        help="stop once the DB holds this many colleges")
+                        help="stop once this many MARKETING-VISIBLE rows exist")
     parser.add_argument("--dry-run", action="store_true",
                         help="show what would be added without scraping")
     parser.add_argument("--credit-cap", type=float, default=5000,
@@ -246,12 +270,16 @@ def main(argv: list[str] | None = None) -> int:
     # a quieter retry — the rate limiting looked like a 50% yield when it was
     # really throttling. 2 keeps the run inside Ollagraph's limits.
     parser.add_argument("--concurrency", type=int, default=2)
+    parser.add_argument("--pause", type=float, default=0.0,
+                        help="seconds to wait before each college; use 3-5 when "
+                             "Ollagraph is rate-limiting")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
     asyncio.run(run(
         target=args.target, dry_run=args.dry_run, credit_cap=args.credit_cap,
         force_refresh=args.force_refresh, concurrency=args.concurrency,
+        pause=args.pause,
     ))
     return 0
 
