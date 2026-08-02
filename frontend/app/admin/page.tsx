@@ -101,8 +101,17 @@ export default function AdminPage() {
     }
   }
 
-  const needsFollowUp = stats['Needs Follow-up'] ?? 0;
   const failed = stats['Failed'] ?? 0;
+
+  // Counted from the rows themselves, not from the status column. Every
+  // imported row carries status "Needs Follow-up" (nothing verified it), so
+  // that count includes hundreds of colleges that ARE complete and visible to
+  // marketing — reporting it as "need follow-up" overstated the problem by 2x.
+  const hiddenFromMarketing = rows.filter(
+    (row) =>
+      !(row.placement_email || row.fallback_contact_email) ||
+      !(row.placement_phone || row.fallback_contact_phone),
+  ).length;
 
   return (
     <main className="page">
@@ -138,23 +147,30 @@ export default function AdminPage() {
       </header>
 
       <div className="stat-row">
+        <span className="stat">
+          <strong>{rows.length}</strong> records
+        </span>
         <span className="stat stat-ok">
-          <strong>{stats['Verified'] ?? 0}</strong> verified
+          <strong>{rows.length - hiddenFromMarketing}</strong> complete
+          (marketing sees these)
         </span>
         <span className="stat stat-warn">
-          <strong>{needsFollowUp}</strong> need follow-up
+          <strong>{hiddenFromMarketing}</strong> missing email or phone
         </span>
-        <span className="stat stat-bad">
-          <strong>{failed}</strong> failed
-        </span>
+        {failed > 0 && (
+          <span className="stat stat-bad">
+            <strong>{failed}</strong> failed
+          </span>
+        )}
       </div>
 
-      {(needsFollowUp > 0 || failed > 0) && !loading && (
+      {hiddenFromMarketing > 0 && !loading && (
         <p className="notice">
-          {needsFollowUp > 0 && `${needsFollowUp} colleges need follow-up`}
-          {needsFollowUp > 0 && failed > 0 && ', '}
-          {failed > 0 && `${failed} failed outright`}
-          {' — see the status column. Rows missing an email or a phone never reach the marketing view or an export.'}
+          <strong>{hiddenFromMarketing}</strong>{' '}
+          {hiddenFromMarketing === 1 ? 'college is' : 'colleges are'} missing an
+          email or a phone, so {hiddenFromMarketing === 1 ? 'it does' : 'they do'}{' '}
+          not appear in the marketing view or any export.
+          {failed > 0 && ` ${failed} failed outright.`}
         </p>
       )}
 
