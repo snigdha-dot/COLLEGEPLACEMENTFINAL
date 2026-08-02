@@ -1,66 +1,120 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+'use client';
 
-export default function Home() {
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { toast } from 'sonner';
+
+import CollegeTable from '../components/CollegeTable';
+import FilterBar from '../components/FilterBar';
+import LoadingSpinner from '../components/LoadingSpinner';
+import {
+  downloadExport,
+  listMarketingColleges,
+  type Filters,
+  type MarketingCollege,
+} from '../lib/api';
+
+/**
+ * Marketing view.
+ *
+ * Never surfaces pipeline status, confidence scores, or failure states — the
+ * API does not send them for this view, and the messaging here stays generic
+ * and positive. If a scrape run had failures, that belongs in the admin view.
+ */
+export default function MarketingPage() {
+  const [rows, setRows] = useState<MarketingCollege[]>([]);
+  const [filters, setFilters] = useState<Filters>({});
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [unreachable, setUnreachable] = useState(false);
+
+  const load = useCallback(async (active: Filters) => {
+    setLoading(true);
+    try {
+      const data = await listMarketingColleges(active);
+      setRows(data.results);
+      setUnreachable(false);
+    } catch {
+      // Deliberately vague: marketing does not need to reason about the
+      // pipeline, only about whether the list is usable right now.
+      setUnreachable(true);
+      setRows([]);
+      toast.error('Could not load the contact list. Please try again shortly.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Debounced so typing in the search box does not fire a request per keystroke.
+  useEffect(() => {
+    const timer = setTimeout(() => void load(filters), 250);
+    return () => clearTimeout(timer);
+  }, [filters, load]);
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const count = await downloadExport(filters, 'xlsx');
+      toast.success(
+        count > 0 ? `Export ready — ${count} colleges.` : 'Export ready.',
+      );
+    } catch {
+      toast.error('Export could not be prepared. Please try again.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>To get started, edit the page.tsx file.</h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <main className="page">
+      <header className="page-head">
+        <div>
+          <h1>College Contacts</h1>
+          <p className="sub">
+            Search, filter, and export placement contacts for outreach.
           </p>
         </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        <div className="head-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleExport}
+            disabled={exporting || loading}
           >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {exporting ? <LoadingSpinner label="Preparing…" inline /> : 'Export to Excel'}
+          </button>
+          <Link href="/admin" className="link small">
+            Admin
+          </Link>
         </div>
-      </main>
-    </div>
+      </header>
+
+      <FilterBar
+        view="marketing"
+        filters={filters}
+        onChange={setFilters}
+        disabled={loading}
+      />
+
+      {loading ? (
+        <div className="center-pad">
+          <LoadingSpinner label="Loading colleges…" />
+        </div>
+      ) : unreachable ? (
+        <div className="empty">
+          <p>The contact list is unavailable right now.</p>
+          <button type="button" className="btn" onClick={() => void load(filters)}>
+            Try again
+          </button>
+        </div>
+      ) : (
+        <>
+          <p className="count">
+            {rows.length} {rows.length === 1 ? 'college' : 'colleges'}
+          </p>
+          <CollegeTable view="marketing" rows={rows} />
+        </>
+      )}
+    </main>
   );
 }

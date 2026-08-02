@@ -104,10 +104,27 @@ def test_normalize_phone_rejects_non_numbers() -> None:
         assert normalize_phone(junk) == "", f"{junk!r} should be rejected"
 
 
-def test_normalize_phone_rejects_impossible_mobile_prefix() -> None:
-    """Indian mobiles start 6-9; a 10-digit number starting 1-5 is not one."""
+def test_normalize_phone_rejects_impossible_leading_digit() -> None:
+    """A 10-digit Indian number is either a mobile (starts 6-9) or an STD code
+    plus number (codes start 2-8). Nothing valid starts with 0 or 1 once the
+    trunk prefix is stripped, so those are placeholders."""
     assert normalize_phone("1234567890") == ""
-    assert normalize_phone("5876543210") == ""
+    assert normalize_phone("0123456789") == ""
+
+
+def test_normalize_phone_accepts_landline_with_std_code() -> None:
+    """Bengaluru numbers are 80 + 8 digits and must not be mistaken for junk
+    just because they do not start 6-9."""
+    assert normalize_phone("8026622130") == "+91-8026622130"
+    assert normalize_phone("+91-80-26622130") == "+91-8026622130"
+
+
+def test_normalize_phone_rejects_run_together_digits() -> None:
+    """REGRESSION: page text like "080-26622130 35" produced 802662213035,
+    a 12-digit string that reached a pilot result as a phone number. Nobody
+    can dial it, so it must not reach marketing as one."""
+    assert normalize_phone("802662213035") == ""
+    assert normalize_phone("98765432101") == ""
 
 
 def test_extract_and_score_sorts_by_confidence() -> None:

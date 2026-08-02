@@ -187,13 +187,31 @@ def normalize_phone(raw: str) -> str:
         else:
             break
 
-    if not 8 <= len(digits) <= 13:
+    if not 8 <= len(digits) <= 12:
         return ""
     if len(set(digits)) <= 2:          # 0000000000, 1111111111
         return ""
-    if len(digits) == 10 and digits[0] not in "6789":
+
+    if len(digits) == 10:
+        # Mobiles start 6-9. Landlines are an STD code (2-8; Bengaluru is 80,
+        # Delhi 11) followed by the number. Nothing valid starts with 0 or 1
+        # once the trunk prefix has been stripped, so those are junk —
+        # "1234567890" is a placeholder, not a phone number.
+        if digits[0] not in "23456789":
+            return ""
+        return f"+91-{digits}"
+
+    # Anything longer than 10 digits should have been reduced by the prefix
+    # stripping above. If it was not, the digits ran together — page text like
+    # "080-26622130 35" yields 802662213035, which is not a number anyone can
+    # dial and must not reach marketing as one.
+    if len(digits) > 10:
         return ""
-    return f"+91-{digits}" if len(digits) == 10 else digits
+
+    # 8-9 digits: a landline missing its STD code. Keep it (the college's own
+    # page is the source, and a human can prefix the city code) but do not
+    # claim it is E.164 by adding +91.
+    return digits
 
 
 #: /v1/extract/contacts wraps each result in an object rather than returning
