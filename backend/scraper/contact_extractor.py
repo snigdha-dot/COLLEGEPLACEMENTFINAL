@@ -56,6 +56,16 @@ _CONTEXT_WORDS = re.compile(
 #: Indian phone numbers: optional +91, optional STD code, 6-11 digits.
 _PHONE_CLEAN = re.compile(r"[^\d+]")
 
+#: Dates and year ranges, which scraped pages produce in bulk. Matches
+#: "24.07.2026", "22-07-2024", "2022-2023", "2018-19", "2017-2018".
+_DATE_LIKE = re.compile(
+    r"\b(?:"
+    r"\d{1,2}[./-]\d{1,2}[./-]\d{2,4}"      # 24.07.2026, 22-07-2024
+    r"|\d{4}[-/]\d{2,4}"                     # 2022-2023, 2018-19
+    r"|(?:19|20)\d{2}\s*[-–]\s*(?:19|20)?\d{2}"  # 2017 - 2018
+    r")\b"
+)
+
 # Confidence bands (0-100). Thresholds are what the pipeline acts on:
 #   >= 70  placement contact — goes in placement_email/placement_phone
 #   40-69  probable, needs review — stored but flagged Needs Follow-up
@@ -174,6 +184,13 @@ def normalize_phone(raw: str) -> str:
     6-8 digits. Anything outside 8-13 digits is almost always a year, a PIN
     code, or a fee figure that the extractor mistook for a number.
     """
+    # Reject date-shaped input before the separators are stripped. Scraped
+    # pages are full of dates, and once punctuation is removed "24.07.2026"
+    # becomes 24072026, which is indistinguishable from a landline by length
+    # alone. Seven such dates reached the marketing view as phone numbers.
+    if _DATE_LIKE.search(raw):
+        return ""
+
     cleaned = _PHONE_CLEAN.sub("", raw)
     digits = cleaned.lstrip("+")
 
@@ -208,10 +225,12 @@ def normalize_phone(raw: str) -> str:
     if len(digits) > 10:
         return ""
 
-    # 8-9 digits: a landline missing its STD code. Keep it (the college's own
-    # page is the source, and a human can prefix the city code) but do not
-    # claim it is E.164 by adding +91.
-    return digits
+    # Fewer than 10 digits: a landline missing its STD code, and therefore not
+    # dialable. Scraped pages produce a lot of 8-9 digit noise (IDs, fees,
+    # partial numbers) that is indistinguishable from a truncated landline, and
+    # publishing an undialable number to marketing is worse than publishing
+    # none — someone wastes a call and the row looked complete.
+    return ""
 
 
 #: /v1/extract/contacts wraps each result in an object rather than returning

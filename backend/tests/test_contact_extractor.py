@@ -119,6 +119,39 @@ def test_normalize_phone_accepts_landline_with_std_code() -> None:
     assert normalize_phone("+91-80-26622130") == "+91-8026622130"
 
 
+def test_normalize_phone_rejects_dates() -> None:
+    """REGRESSION: seven colleges reached the marketing view with a date as
+    their phone number. Once punctuation is stripped "24.07.2026" becomes
+    24072026, which length alone cannot distinguish from a landline, so dates
+    must be rejected before separators are removed."""
+    for date in ["24.07.2026", "22-07-2024", "10-07-2023", "2022-2023",
+                 "2018-19", "2017-2018", "2019-20 2020-21", "01-12-113539"]:
+        assert normalize_phone(date) == "", f"date accepted as phone: {date!r}"
+
+
+def test_normalize_phone_rejects_short_undialable_numbers() -> None:
+    """A number with fewer than 10 digits has no STD code and cannot be
+    dialled. Publishing one is worse than publishing nothing: the row looks
+    complete and somebody wastes a call."""
+    for short in ["152506064", "577909240", "12345678", "123456789"]:
+        assert normalize_phone(short) == "", f"undialable number accepted: {short!r}"
+
+
+def test_normalize_phone_keeps_real_numbers_from_the_dataset() -> None:
+    """Guards the date/length rules against over-rejecting. Every one of these
+    is a real number from the imported college data."""
+    cases = [
+        ("+91 85142 75203", "+91-8514275203"),
+        ("080-28467248", "+91-8028467248"),
+        ("044 2235 8491", "+91-4422358491"),
+        ("08514242256", "+91-8514242256"),
+        ("+91 884 230 0900", "+91-8842300900"),
+        ("+91-80-46966966", "+91-8046966966"),
+    ]
+    for raw, expected in cases:
+        assert normalize_phone(raw) == expected, f"{raw!r} -> {normalize_phone(raw)!r}"
+
+
 def test_normalize_phone_rejects_run_together_digits() -> None:
     """REGRESSION: page text like "080-26622130 35" produced 802662213035,
     a 12-digit string that reached a pilot result as a phone number. Nobody
