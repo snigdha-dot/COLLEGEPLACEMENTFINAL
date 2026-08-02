@@ -151,10 +151,11 @@ async def run(
     credit_cap: float = 5000, force_refresh: bool = False,
     pause: float = 0.0, only_state: str | None = None,
 ) -> None:
-    start = marketing_count()
+    start = marketing_count(only_state)
     start_db = db_count()
-    print(f"marketing-visible: {start}   (DB holds {start_db})")
-    print(f"target: {target} marketing-visible rows\n")
+    scope = f"{only_state} " if only_state else ""
+    print(f"{scope}marketing-visible: {start}   (DB holds {start_db} overall)")
+    print(f"target: {target} {scope}marketing-visible rows\n")
     if start >= target:
         print("Target already met — nothing to do.")
         return

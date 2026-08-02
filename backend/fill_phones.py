@@ -1,9 +1,9 @@
-"""Find missing phone numbers for colleges that already have an email.
+"""Fill in whichever contact an incomplete college row is missing.
 
 Narrower and much cheaper than the full pipeline. These colleges already have
-a website and an email from the imported dataset; only the phone is missing,
-so there is no discovery stage and no site-wide crawl — just a handful of
-targeted page fetches per college.
+a known website, so there is no discovery stage and no site-wide crawl — just
+a handful of targeted page fetches per college. Either the email or the phone
+(or both) may be missing; whatever is found for an empty field is stored.
 
 Each college goes through:
 
@@ -75,13 +75,15 @@ class FillResult:
     website: str
     site_verified: bool = False
     phone: str = ""
+    email: str = ""
     extra_phones: list[str] = field(default_factory=list)
+    extra_emails: list[str] = field(default_factory=list)
     pages_tried: int = 0
     note: str = ""
 
     @property
     def succeeded(self) -> bool:
-        return bool(self.phone)
+        return bool(self.phone or self.email)
 
 
 def _domain(url: str) -> str:
@@ -134,6 +136,30 @@ def site_belongs_to_college(page_text: str, college_name: str, url: str) -> bool
     return len(host) >= 5 and host in haystack
 
 
+_EMAIL_IN_TEXT = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+
+#: Addresses that are never a useful outreach target.
+_JUNK_EMAIL = re.compile(
+    r"(noreply|no-reply|donotreply|postmaster|webmaster|example\.|sentry|"
+    r"\.png|\.jpg|\.gif|wixpress|godaddy|@2x)", re.IGNORECASE
+)
+
+
+def _emails_from_text(text: str) -> list[str]:
+    """Addresses visible in page text, minus obvious non-contacts.
+
+    Trailing punctuation is stripped: an address at the end of a sentence
+    ("write to info@abc.ac.in.") otherwise keeps the full stop and becomes
+    undeliverable.
+    """
+    found = []
+    for match in _EMAIL_IN_TEXT.finditer(text):
+        address = match.group(0).lower().rstrip(".,;:)]}>'\"")
+        if address and not _JUNK_EMAIL.search(address) and address.count("@") == 1:
+            found.append(address)
+    return list(dict.fromkeys(found))
+
+
 def _phones_from_text(text: str) -> list[str]:
     found: list[str] = []
     for match in _PHONE_IN_TEXT.finditer(text):
@@ -160,6 +186,7 @@ async def fill_one(client: OllagraphClient, row: Any) -> FillResult:
     candidates = list(dict.fromkeys([base] + [f"{base}{p}" for p in _CONTACT_PATHS if p]))
 
     phones: list[str] = []
+    emails: list[str] = []
     for url in candidates[:MAX_PAGES_PER_COLLEGE]:
         try:
             response = await client.scrape(url, format="markdown")
@@ -188,20 +215,37 @@ async def fill_one(client: OllagraphClient, row: Any) -> FillResult:
                     normalized = normalize_phone(raw)
                     if normalized:
                         phones.append(normalized)
+            for item in extracted.get("emails") or []:
+                address = item.get("address") if isinstance(item, dict) else item
+                if isinstance(address, str) and "@" in address:
+                    emails.append(address.strip().lower())
         except OllagraphError as exc:
             log.debug("extract_contacts failed for %s: %s", url, exc)
+
+        # Local regex backstop for emails, same rationale as phones.
+        emails.extend(_emails_from_text(text))
+        emails = list(dict.fromkeys(emails))
 
         # Local regex as a backstop — free, and catches numbers the extractor
         # formats in ways it does not return.
         phones.extend(_phones_from_text(text))
 
         phones = list(dict.fromkeys(phones))
-        if phones:
+        if phones and emails:
             break
 
     if phones:
         result.phone = phones[0]
         result.extra_phones = phones[1:6]
+    if emails:
+        # Placement addresses first, so the stored contact is the best one.
+        ranked = sorted(
+            emails,
+            key=lambda e: 0 if re.match(r"(tpo|placement|training|career|spo|cdc)", e) else 1,
+        )
+        result.email = ranked[0]
+        result.extra_emails = ranked[1:6]
+    if phones or emails:
         result.note = f"found on {result.pages_tried} page(s)"
     elif result.site_verified:
         result.note = f"site verified but no phone found ({result.pages_tried} pages)"
@@ -218,12 +262,18 @@ async def run(
         rows = repo.admin_rows(conn, state=state, limit=100000)
         visible = {r["college_name"] for r in repo.marketing_rows(conn, limit=100000)}
 
+    # Any incomplete row with a website is worth a pass, whichever contact is
+    # missing. Restricting this to rows that already had an email was wrong:
+    # of Tamil Nadu's 53 incomplete rows, 43 were missing the EMAIL rather than
+    # the phone, so the tool skipped almost everything it was pointed at.
     targets = [
         r for r in rows
         if r["college_name"] not in visible
-        and (r["placement_email"] or r["fallback_contact_email"])
-        and not (r["placement_phone"] or r["fallback_contact_phone"])
         and r["website"]
+        and not (
+            (r["placement_email"] or r["fallback_contact_email"])
+            and (r["placement_phone"] or r["fallback_contact_phone"])
+        )
     ][:limit]
 
     if not targets:
@@ -259,17 +309,22 @@ async def run(
 
                 mark = "OK " if result.succeeded else "   "
                 verified = "verified" if result.site_verified else "UNVERIFIED"
-                print(f"  {mark}{result.college_name[:38]:40} {verified:10} "
-                      f"{result.phone or '-':16} {result.note[:40]}")
+                print(f"  {mark}{result.college_name[:34]:36} {verified:10} "
+                      f"{(result.email or '-')[:26]:28} {result.phone or '-':16} "
+                      f"{result.note[:28]}")
 
                 if result.succeeded and not dry_run:
                     with get_conn() as conn:
                         # Written as the FALLBACK contact, not the placement
                         # contact: nothing here established that this number
                         # belongs to the placement cell specifically.
-                        repo.update_college(conn, result.college_id, {
-                            "fallback_contact_phone": result.phone,
-                        })
+                        changes: dict[str, str] = {}
+                        if result.phone:
+                            changes["fallback_contact_phone"] = result.phone
+                        if result.email:
+                            changes["fallback_contact_email"] = result.email
+                        if changes:
+                            repo.update_college(conn, result.college_id, changes)
 
         try:
             await asyncio.gather(*(_one(row) for row in targets))
