@@ -54,8 +54,17 @@ _CONTACT_PATHS = ("", "/contact-us", "/contact", "/placement", "/placements")
 #: chance of finding a number nobody has already found is low.
 MAX_PAGES_PER_COLLEGE = 4
 
+#: Indian numbers are written with spaces and dashes in every arrangement
+#: ("+91 80 2846 7248", "080-28467248", "+91-98450 12345"), so the pattern
+#: allows separators between digit groups and lets normalize_phone judge the
+#: result. Anchored on a non-digit boundary so it does not slice a longer
+#: number in half.
 _PHONE_IN_TEXT = re.compile(
-    r"(?:\+?91[\s\-]?)?(?:0\d{2,4}[\s\-]?)?\d{6,10}"
+    r"(?<![\d])"
+    r"(?:\+?\s?91[\s\-]?)?"        # optional country code
+    r"(?:\(?0?\d{2,5}\)?[\s\-]?)?"  # optional STD code, maybe bracketed
+    r"\d{3,5}[\s\-]?\d{3,5}"        # the number itself, possibly split
+    r"(?![\d])"
 )
 
 
@@ -215,7 +224,13 @@ async def run(
     results: list[FillResult] = []
     semaphore = asyncio.Semaphore(concurrency)
 
-    async with OllagraphClient(concurrency=concurrency, credit_cap=credit_cap) as client:
+    # max_retries=1: a 500 from /v1/scrape here means the college's own site is
+    # down, not a transient API blip. Retrying with backoff costs ~7s per dead
+    # site and never succeeds — measured across a 5-college sample where 4 of
+    # the 5 sites were unreachable.
+    async with OllagraphClient(
+        concurrency=concurrency, credit_cap=credit_cap, max_retries=1
+    ) as client:
         async def _one(row: Any) -> None:
             async with semaphore:
                 try:
