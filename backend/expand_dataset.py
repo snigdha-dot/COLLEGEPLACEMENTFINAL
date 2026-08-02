@@ -13,8 +13,10 @@ Combines the pieces that already exist rather than adding a new pipeline:
   4. STORE   — write immediately, one college at a time, so a run that stops
                partway keeps everything it already found.
 
-Stops as soon as the DB reaches --target, so it never spends more than the
-goal requires.
+Stops as soon as --target MARKETING-VISIBLE rows exist, so it never spends
+more than the goal requires. The target counts rows the marketing team can
+actually see and export — those with both an email and a phone — not DB rows.
+A college stored without a phone does not bring the target closer.
 
 Usage:
     python -m backend.expand_dataset --target 500 --dry-run
@@ -66,6 +68,16 @@ def existing_keys() -> set[str]:
 def db_count() -> int:
     with get_conn() as conn:
         return len(repo.admin_rows(conn, limit=100000))
+
+
+def marketing_count() -> int:
+    """Rows the marketing team can actually see and export.
+
+    This is the number the target counts, not the DB total. A college with an
+    email but no phone sits in the DB and helps nobody sell anything.
+    """
+    with get_conn() as conn:
+        return len(repo.marketing_rows(conn, limit=100000))
 
 
 async def collect_candidates(
@@ -128,8 +140,10 @@ async def run(
     *, target: int, dry_run: bool = False, concurrency: int = 3,
     credit_cap: float = 5000, force_refresh: bool = False,
 ) -> None:
-    start = db_count()
-    print(f"DB currently holds {start} colleges; target is {target}.\n")
+    start = marketing_count()
+    start_db = db_count()
+    print(f"marketing-visible: {start}   (DB holds {start_db})")
+    print(f"target: {target} marketing-visible rows\n")
     if start >= target:
         print("Target already met — nothing to do.")
         return
@@ -141,6 +155,8 @@ async def run(
         candidates = await collect_candidates(client, force_refresh=force_refresh)
         print(f"\n{len(candidates)} candidate colleges not already in the DB.")
 
+        # Scrape more colleges than the shortfall: not every one yields both
+        # an email and a phone, so a 1:1 budget would always fall short.
         needed = target - start
         if not candidates:
             print("No new colleges found. The seed channels are exhausted for these "
@@ -161,12 +177,12 @@ async def run(
         print(f"\nEnriching up to {needed} colleges (stops as soon as the DB hits "
               f"{target}):\n")
 
-        added = failed = 0
+        added = failed = complete = 0
         semaphore = asyncio.Semaphore(concurrency)
         stop = asyncio.Event()
 
         async def _one(seed: SeedCollege) -> None:
-            nonlocal added, failed
+            nonlocal added, failed, complete
             if stop.is_set():
                 return
             async with semaphore:
@@ -186,19 +202,22 @@ async def run(
                 # exists and was attempted, and the admin view can show it.
                 _store(result)
                 added += 1
-                has_contact = bool(
-                    (result.placement_email or result.fallback_contact_email)
-                    and (result.placement_phone or result.fallback_contact_phone)
-                )
-                mark = "OK " if has_contact else "   "
-                print(f"  {mark}{result.college_name[:40]:42} {result.status:16} "
-                      f"{(result.placement_email or result.fallback_contact_email or '-')[:30]}")
+                email = result.placement_email or result.fallback_contact_email
+                phone = result.placement_phone or result.fallback_contact_phone
+                if email and phone:
+                    complete += 1
+                mark = "OK " if (email and phone) else "   "
+                print(f"  {mark}{result.college_name[:38]:40} "
+                      f"{(email or '-')[:28]:30} {phone or '-':16} "
+                      f"[{start + complete}/{target}]")
 
-                if start + added >= target:
+                # Counts only rows marketing can actually see, so a college
+                # stored without a phone does not bring the target closer.
+                if start + complete >= target:
                     stop.set()
 
         try:
-            await asyncio.gather(*(_one(c) for c in candidates[: needed + 40]))
+            await asyncio.gather(*(_one(c) for c in candidates))
         except CreditCapExceeded as exc:
             print(f"\nSTOPPED: {exc}")
 
