@@ -26,6 +26,11 @@ from ..scraper.normalize import dedupe_key
 SORTABLE_COLUMNS = frozenset({
     "college_name", "state", "stream", "district", "status",
     "outreach_status", "confidence_score", "last_scraped",
+    # When the row first entered the DB. Distinct from last_scraped, which
+    # changes every time a college is re-scraped — sorting by that would
+    # reorder old colleges as they are refreshed. Marketing sorts newest-first
+    # to see what has just been added.
+    "created_at",
 })
 
 _UPSERT = """

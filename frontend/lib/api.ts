@@ -55,6 +55,21 @@ export interface Filters {
   status?: string;
   outreach_status?: string;
   search?: string;
+  /** '' (name A-Z), 'newest', or 'oldest' — translated below. */
+  sort?: string;
+}
+
+/**
+ * Turn the UI's sort choice into the backend's sort + direction pair.
+ *
+ * Sorts on created_at, not last_scraped: re-scraping a college updates
+ * last_scraped, which would shuffle long-standing rows to the top as they are
+ * refreshed. created_at is when the college actually entered the dataset.
+ */
+function sortParams(sort?: string): { sort?: string; direction?: string } {
+  if (sort === 'newest') return { sort: 'created_at', direction: 'desc' };
+  if (sort === 'oldest') return { sort: 'created_at', direction: 'asc' };
+  return {};
 }
 
 export class ApiError extends Error {
@@ -103,15 +118,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export function listMarketingColleges(
   filters: Filters = {},
 ): Promise<ListResponse<MarketingCollege>> {
+  const { sort, ...rest } = filters;
   return request(
-    `/api/colleges${toQuery({ view: 'marketing', ...filters, status: undefined, limit: 1000 })}`,
+    `/api/colleges${toQuery({
+      view: 'marketing',
+      ...rest,
+      ...sortParams(sort),
+      status: undefined,
+      limit: 1000,
+    })}`,
   );
 }
 
 export function listAdminColleges(
   filters: Filters = {},
 ): Promise<ListResponse<AdminCollege>> {
-  return request(`/api/colleges${toQuery({ view: 'admin', ...filters, limit: 1000 })}`);
+  const { sort, ...rest } = filters;
+  return request(
+    `/api/colleges${toQuery({
+      view: 'admin',
+      ...rest,
+      ...sortParams(sort),
+      limit: 1000,
+    })}`,
+  );
 }
 
 export function getCollege(id: number): Promise<AdminCollege> {

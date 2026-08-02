@@ -72,18 +72,33 @@ export default function FilterBar({
       </label>
 
       <label className="field">
-        <span>Outreach</span>
+        <span>Sort by</span>
         <select
-          value={filters.outreach_status ?? ''}
-          onChange={(event) => set('outreach_status', event.target.value)}
+          value={filters.sort ?? ''}
+          onChange={(event) => set('sort', event.target.value)}
           disabled={disabled}
         >
-          <option value="">Any</option>
-          {OUTREACH.map((value) => (
-            <option key={value} value={value}>{value}</option>
-          ))}
+          <option value="">College name (A–Z)</option>
+          <option value="newest">Newest colleges added</option>
+          <option value="oldest">Oldest colleges added</option>
         </select>
       </label>
+
+      {view === 'admin' && (
+        <label className="field">
+          <span>Outreach</span>
+          <select
+            value={filters.outreach_status ?? ''}
+            onChange={(event) => set('outreach_status', event.target.value)}
+            disabled={disabled}
+          >
+            <option value="">Any</option>
+            {OUTREACH.map((value) => (
+              <option key={value} value={value}>{value}</option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {view === 'admin' && (
         <label className="field">
