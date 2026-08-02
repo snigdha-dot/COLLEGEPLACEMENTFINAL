@@ -21,7 +21,6 @@ const MARKETING_COLUMNS = [
   'Stream',
   'Affiliation',
   'Website',
-  'Contact Person',
   'Email',
   'Phone',
   'Other Emails',
@@ -117,7 +116,6 @@ export default function CollegeTable({
                   <td>{row.stream}</td>
                   <td>{row.affiliation || <span className="muted">—</span>}</td>
                   <td><Website url={row.website} /></td>
-                  <td>{row.contact_person || <span className="muted">—</span>}</td>
                   <td><Mail address={row.email} /></td>
                   <td>{row.phone || <span className="muted">—</span>}</td>
                   <td><List value={row.all_emails_found} /></td>

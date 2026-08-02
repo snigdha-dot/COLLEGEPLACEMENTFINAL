@@ -18,7 +18,6 @@ export interface MarketingCollege {
   stream: string;
   affiliation: string | null;
   website: string | null;
-  contact_person: string | null;
   email: string | null;
   phone: string | null;
   all_emails_found: string | null;
@@ -27,7 +26,7 @@ export interface MarketingCollege {
 }
 
 /** The full internal record — admin/QA only. */
-export interface AdminCollege extends Omit<MarketingCollege, 'contact_person' | 'email' | 'phone' | 'all_emails_found' | 'all_phones_found'> {
+export interface AdminCollege extends Omit<MarketingCollege, 'email' | 'phone' | 'all_emails_found' | 'all_phones_found'> {
   id: number;
   district: string | null;
   placement_officer_name: string | null;

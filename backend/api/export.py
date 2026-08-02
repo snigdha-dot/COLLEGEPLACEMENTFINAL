@@ -30,7 +30,6 @@ COLUMN_LABELS = {
     "stream": "Stream",
     "affiliation": "Affiliation",
     "website": "Website",
-    "contact_person": "Contact Person",
     "email": "Email",
     "phone": "Phone",
     "all_emails_found": "All Emails Found",

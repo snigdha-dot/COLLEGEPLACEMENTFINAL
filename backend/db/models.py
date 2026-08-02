@@ -42,13 +42,18 @@ INTERNAL_COLUMNS = (
 )
 
 #: Exactly what marketing may see, in display order.
+#:
+#: contact_person was dropped (2026-08-02): the pipeline never populated
+#: placement_officer_name — a named officer is rarely published on college
+#: sites and was empty in all 581 rows — so the column was pure noise in the
+#: UI and the export. The DB field is kept, because a scrape or a hand edit
+#: may still fill it, and it can be reinstated here if it starts carrying data.
 MARKETING_COLUMNS = (
     "college_name",
     "state",
     "stream",
     "affiliation",
     "website",
-    "contact_person",
     "email",
     "phone",
     "all_emails_found",
@@ -168,7 +173,6 @@ MARKETING_SELECT = f"""
     stream,
     affiliation,
     website,
-    placement_officer_name AS contact_person,
     {_BEST_EMAIL} AS email,
     {_BEST_PHONE} AS phone,
     backup_emails_found AS all_emails_found,
