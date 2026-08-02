@@ -16,8 +16,10 @@ underperforms on a real pilot state.
 
 ## Status
 
-Phase 0 (scaffolding). No pipeline code yet. See `context.md` for detailed
-current status and the build order.
+Backend, pipeline, API, and UI are built and the pipeline is verified working
+end-to-end against real Karnataka colleges. 114 tests pass. The full
+84-college production run has not been executed yet — see `context.md` for
+detailed status, per-endpoint findings, and what remains.
 
 ## Setup
 
@@ -55,8 +57,49 @@ npm run dev
 
 ## Usage
 
-Not yet implemented — endpoints and UI land in phases 6 and 7. This section
-expands as they're built.
+Run the backend and frontend in two terminals:
+
+```bash
+# terminal 1 — API on :8000
+venv/Scripts/python.exe -m uvicorn backend.main:app --reload
+
+# terminal 2 — UI on :3000
+cd frontend && npm run dev
+```
+
+Then open:
+
+| URL | What it is |
+| --- | --- |
+| `localhost:3000` | Marketing view — clean contacts, filters, Excel export |
+| `localhost:3000/admin` | QA view — full records, statuses, job controls |
+| `localhost:8000/docs` | Interactive API reference |
+
+### Typical first run
+
+1. Open `/admin`, pick a state, click **Build seed list**. This produces the
+   master college list and caches it for 30 days.
+2. Click **Run scrape (25)**. Colleges are scraped in the background and
+   written to SQLite as they finish, so a crash mid-run keeps what completed.
+3. Watch the status counts. `Verified` means a placement email *and* phone
+   were found; `Needs Follow-up` means partial; `Failed` means nothing.
+4. Switch to the marketing view and export. Only rows with **both** an email
+   and a phone appear there — that filter is applied server-side and cannot
+   be bypassed from the UI.
+
+### API endpoints
+
+```
+GET   /api/colleges?view=marketing|admin   list, filter, search
+GET   /api/colleges/{id}                   full record
+PATCH /api/colleges/{id}                   hand-correct a field
+GET   /api/colleges/stats                  status counts (QA)
+GET   /api/export?format=xlsx|csv          download (always marketing schema)
+POST  /api/seed/build                      build the master list
+POST  /api/scrape/run                      start a background scrape run
+POST  /api/scrape/college/{id}             re-scrape one college
+GET   /api/scrape/runs                     run history
+```
 
 ## Tests
 
