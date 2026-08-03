@@ -532,6 +532,26 @@ _FOREIGN_MARKERS = re.compile(
 )
 
 
+#: Major cities outside Karnataka, Tamil Nadu, and Andhra Pradesh. A college
+#: naming one of these is not in scope, whatever the aggregator page claimed.
+#: Deliberately excludes anything ambiguous — no city that also exists in the
+#: three target states.
+_OUT_OF_SCOPE_CITY = re.compile(
+    r"\b(mohali|chandigarh|punjab|ludhiana|amritsar|jalandhar|patiala"
+    r"|mumbai|pune|nagpur|nashik|thane|aurangabad"
+    r"|delhi|noida|gurgaon|gurugram|faridabad|ghaziabad"
+    r"|jaipur|jodhpur|udaipur|kota"
+    r"|lucknow|kanpur|varanasi|allahabad|agra|meerut"
+    r"|kolkata|howrah|durgapur|siliguri"
+    r"|bhopal|indore|gwalior|jabalpur"
+    r"|ahmedabad|surat|vadodara|rajkot|gandhinagar"
+    r"|patna|ranchi|jamshedpur|bhubaneswar|cuttack"
+    r"|dehradun|roorkee|shimla|srinagar|jammu"
+    r"|guwahati|bhilai|raipur|nagaland|manipur)\b",
+    re.IGNORECASE,
+)
+
+
 def plausibly_in_state(name: str, state: str) -> bool:
     """Reject names that clearly belong to another state or country.
 
@@ -543,6 +563,14 @@ def plausibly_in_state(name: str, state: str) -> bool:
     """
     lowered = name.lower()
     if _FOREIGN_MARKERS.search(lowered):
+        return False
+
+    # Cities in other Indian states. The district check below only catches
+    # names that match a district exactly, so "CGC University, Mohali" and
+    # "University of Mumbai" were seeded and scraped as Andhra Pradesh
+    # colleges. Aggregator pages mix states freely, so a city outside the
+    # three target states is a reliable reject.
+    if _OUT_OF_SCOPE_CITY.search(lowered):
         return False
 
     try:

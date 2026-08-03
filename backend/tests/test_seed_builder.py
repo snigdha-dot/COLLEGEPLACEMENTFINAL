@@ -288,6 +288,16 @@ def test_plausibly_in_state_rejects_foreign_and_other_states() -> None:
         assert not sb.plausibly_in_state(name, "Karnataka"), f"foreign kept: {name!r}"
 
 
+def test_out_of_state_indian_cities_rejected() -> None:
+    """REGRESSION: "CGC University, Mohali" (Punjab) and "University of Mumbai"
+    were seeded and scraped as Andhra Pradesh colleges. The district check only
+    matched exact district names, so a major city in another state slipped
+    through. Aggregator pages mix states freely."""
+    for name in ["CGC University, Mohali", "University of Mumbai",
+                 "IIT Delhi", "VIT Bhopal", "Amity University Noida"]:
+        assert not sb.plausibly_in_state(name, "Andhra Pradesh"),             f"out-of-state college accepted: {name!r}"
+
+
 def test_plausibly_in_state_keeps_local_and_placeless_names() -> None:
     """Most real college names carry no place at all, so a missing place must
     not be treated as disqualifying."""
