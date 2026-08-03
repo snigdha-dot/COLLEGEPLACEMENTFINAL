@@ -155,6 +155,16 @@ _JUNK_EMAIL = re.compile(
 )
 
 
+#: Addresses corrupted by markdown running adjacent text together:
+#:   "29111info@giet.ac.ingiet"  -- page number prefix, domain repeated
+#: A leading digit is never valid at the start of a real local-part here, and
+#: a TLD followed by more letters means the domain was duplicated.
+_MANGLED_EMAIL = re.compile(
+    r"^\d"                                   # starts with a digit
+    r"|@[\w.-]+\.(?:in|com|org|edu|net)[a-z]{2,}$"  # TLD then more letters
+)
+
+
 def _emails_from_text(text: str) -> list[str]:
     """Addresses visible in page text, minus obvious non-contacts.
 
@@ -165,8 +175,14 @@ def _emails_from_text(text: str) -> list[str]:
     found = []
     for match in _EMAIL_IN_TEXT.finditer(text):
         address = match.group(0).lower().rstrip(".,;:)]}>'\"")
-        if address and not _JUNK_EMAIL.search(address) and address.count("@") == 1:
-            found.append(address)
+        if not address or _JUNK_EMAIL.search(address) or address.count("@") != 1:
+            continue
+        # Markdown runs adjacent text together, producing addresses like
+        # "29111info@giet.ac.ingiet" — a page number glued to the front and the
+        # domain repeated after the TLD. Both are undeliverable.
+        if _MANGLED_EMAIL.match(address):
+            continue
+        found.append(address)
     return list(dict.fromkeys(found))
 
 

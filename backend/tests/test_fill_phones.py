@@ -67,6 +67,22 @@ def test_empty_page_fails_verification() -> None:
     )
 
 
+def test_mangled_emails_rejected() -> None:
+    """REGRESSION: markdown runs adjacent text together, producing addresses
+    like "29111info@giet.ac.ingiet" -- a page number glued to the front and the
+    domain repeated after the TLD. Fourteen such addresses reached the DB."""
+    from backend.fill_phones import _emails_from_text
+
+    for bad in ["29111info@giet.ac.ingiet",
+                "4565helpdesk@ist.srmtrichy.edu.in",
+                "9035069651info@bitm.edu.in"]:
+        assert _emails_from_text(bad) == [], f"mangled address kept: {bad!r}"
+
+    for good in ["placement@kongu.ac.in", "tpo@adityatekkali.edu.in",
+                 "info@giet.ac.in", "lbcemym@lbrce.ac.in"]:
+        assert _emails_from_text(good) == [good], f"valid address dropped: {good!r}"
+
+
 def test_phones_extracted_across_indian_formats() -> None:
     """The same number is written every possible way on college sites."""
     cases = [
