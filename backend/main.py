@@ -45,13 +45,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Restricted to the known frontend origin — never "*". This service holds
-# contact PII (AGENTS.md security rule).
+# Restricted to known frontend origins — never "*". This service holds contact
+# PII (AGENTS.md security rule).
+#
+# FRONTEND_ORIGIN accepts a comma-separated list so the same backend can serve
+# both the local browser and other machines on the LAN:
+#   FRONTEND_ORIGIN=http://localhost:3000,http://192.168.7.16:3000
+# A LAN origin must be named explicitly. Falling back to "*" would let any site
+# a colleague happens to visit read this API through their browser.
 _origins = [
     origin.strip()
     for origin in os.getenv("FRONTEND_ORIGIN", "http://localhost:3000").split(",")
     if origin.strip()
 ]
+
+if any(o.startswith("http://192.168.") or o.startswith("http://10.") for o in _origins):
+    log.warning(
+        "CORS allows a LAN origin (%s). This app has NO authentication and "
+        "serves contact PII — anyone on this network can read and export it. "
+        "Add auth before any wider rollout (AGENTS.md).",
+        ", ".join(_origins),
+    )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
