@@ -132,8 +132,18 @@ def site_belongs_to_college(page_text: str, college_name: str, url: str) -> bool
 
     # Last resort: the domain's own name appearing in the page (a college site
     # nearly always mentions itself somewhere).
-    host = _domain(url).split(".")[0]
-    return len(host) >= 5 and host in haystack
+    #
+    # Deliberately NOT applied to non-educational domains. Three "Government
+    # ..." colleges were matched to governmentjobs.com — a US job board —
+    # because the word "government" appears in both the name and the page, and
+    # all three were then given support@governmentjobs.com as their contact.
+    host = _domain(url)
+    if not any(host.endswith(tld) for tld in (".ac.in", ".edu.in", ".edu", ".org.in",
+                                              ".nic.in", ".gov.in", ".ernet.in")):
+        return False
+
+    stem = host.split(".")[0]
+    return len(stem) >= 5 and stem in haystack
 
 
 _EMAIL_IN_TEXT = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")

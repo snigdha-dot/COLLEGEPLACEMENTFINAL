@@ -52,6 +52,14 @@ BLOCKED_DOMAINS: frozenset[str] = frozenset({
     "indeed.com",
     "naukri.com",
     "glassdoor.co.in",
+    # Job boards that match on institution words. governmentjobs.com was
+    # picked as the website for three separate "Government ..." colleges, which
+    # then all received support@governmentjobs.com as their contact.
+    "governmentjobs.com",
+    "monster.com",
+    "shine.com",
+    "timesjobs.com",
+    "freshersworld.com",
 })
 
 
