@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -59,16 +60,31 @@ _origins = [
     if origin.strip()
 ]
 
-if any(o.startswith("http://192.168.") or o.startswith("http://10.") for o in _origins):
-    log.warning(
-        "CORS allows a LAN origin (%s). This app has NO authentication and "
-        "serves contact PII — anyone on this network can read and export it. "
-        "Add auth before any wider rollout (AGENTS.md).",
-        ", ".join(_origins),
-    )
+#: Any private-network origin, matched by pattern rather than a fixed address.
+#: The LAN IP is assigned by DHCP and changes on reconnect (192.168.7.16 ->
+#: 192.168.240.225 mid-session), which silently broke every client: browsers
+#: got a CORS rejection and the table rendered empty. Matching the RFC1918
+#: ranges keeps it working across reassignment without resorting to "*", which
+#: would let any site a colleague visits read this API.
+_LAN_ORIGIN = re.compile(
+    r"^https?://("
+    r"localhost|127\.0\.0\.1"
+    r"|192\.168\.\d{1,3}\.\d{1,3}"
+    r"|10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r")(:\d+)?$"
+)
+
+log.warning(
+    "CORS accepts any private-network origin. This app has NO authentication "
+    "and serves contact PII — anyone on this WiFi can read and export it, and "
+    "the admin view can edit records and trigger billed scrapes. Add auth "
+    "before any wider rollout (AGENTS.md)."
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=_LAN_ORIGIN.pattern,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["Content-Type"],

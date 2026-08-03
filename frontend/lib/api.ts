@@ -6,8 +6,32 @@
  * Ollagraph key lives only in the backend's .env.
  */
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+/**
+ * Where the backend lives.
+ *
+ * Derived from the host the browser actually used, rather than a hardcoded
+ * address. The machine's LAN IP is assigned by DHCP and changes on reconnect
+ * (192.168.7.16 -> 192.168.240.225 mid-session), which silently broke every
+ * client: the page loaded but every request went to the old address.
+ *
+ * So: open the app at localhost and it calls localhost; open it at
+ * 192.168.x.y and it calls that same host on the API port. No config to
+ * update when the IP moves.
+ *
+ * NEXT_PUBLIC_API_BASE_URL still wins when set, for the case where the API
+ * genuinely lives elsewhere.
+ */
+const API_PORT = process.env.NEXT_PUBLIC_API_PORT ?? '8000';
+
+function resolveBaseUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (explicit) return explicit;
+  // Server-side render has no window; the value is only used in the browser.
+  if (typeof window === 'undefined') return `http://localhost:${API_PORT}`;
+  return `${window.location.protocol}//${window.location.hostname}:${API_PORT}`;
+}
+
+const BASE_URL = resolveBaseUrl();
 
 export type View = 'marketing' | 'admin';
 
