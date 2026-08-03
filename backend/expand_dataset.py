@@ -229,7 +229,13 @@ async def run(
                 # Bail out if the completion rate collapses. A throttled run
                 # keeps charging for refused calls while producing almost
                 # nothing, so it is better to stop and report than to grind on.
-                if added >= 25 and complete / added < 0.20:
+                # 10%, not 20%. The threshold existed to stop a run that was
+                # being throttled into uselessness, but discovery settled at
+                # 16-19% once the rate limit eased — real colleges, aborted
+                # just short of the cutoff. A fully throttled run still lands
+                # near 0-12%, so this keeps the guard while letting a working
+                # run continue.
+                if added >= 25 and complete / added < 0.10:
                     print(
                         f"\nABORTING: only {complete}/{added} colleges completed "
                         f"({complete / added * 100:.0f}%). That is the rate-limit "
