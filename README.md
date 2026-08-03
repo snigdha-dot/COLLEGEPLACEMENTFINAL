@@ -21,7 +21,48 @@ end-to-end against real Karnataka colleges. 114 tests pass. The full
 84-college production run has not been executed yet — see `context.md` for
 detailed status, per-endpoint findings, and what remains.
 
-## Setup
+## Setup on a new machine
+
+Start to finish, assuming a fresh clone:
+
+```bash
+git clone <repo-url> && cd "COLLEGE PLACEMENT"
+
+# 1. Backend
+python -m venv venv
+venv\Scripts\activate                      # Windows
+pip install -r requirements.txt
+
+# 2. Secrets — .env is NOT in git, you must create it
+cp .env.example .env                       # then paste OLLAGRAPH_API_KEY
+cp frontend/.env.example frontend/.env.local
+
+# 3. Load the dataset. The SQLite file is gitignored; the data lives in
+#    data/colleges_snapshot.csv, which IS committed.
+venv/Scripts/python.exe -m backend.snapshot restore
+
+# 4. Frontend
+cd frontend && npm install && cd ..
+```
+
+Then run the two servers (see **Usage** below) and check
+`localhost:3000` shows the expected row count.
+
+### Keeping the dataset in sync
+
+The SQLite file never enters git — it is a binary blob that conflicts on
+every concurrent edit. The data travels as a diffable CSV instead:
+
+```bash
+python -m backend.snapshot status     # compare DB against the snapshot
+python -m backend.snapshot export     # DB  -> data/colleges_snapshot.csv
+python -m backend.snapshot restore    # CSV -> DB
+```
+
+**Export and commit the snapshot after any scraping run**, otherwise that
+work exists only on the machine that did it. Restore merges rather than
+replaces: a blank field in an older snapshot will never overwrite a contact
+found later, so pulling stale data cannot destroy newer findings.
 
 ### Prerequisites
 - Python 3.11+ (developed against 3.14)

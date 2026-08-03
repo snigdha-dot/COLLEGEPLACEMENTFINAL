@@ -59,3 +59,14 @@
 - Ollagraph bills per successful call. Don't re-scrape a college, or
   regenerate a state's master list, that already succeeded recently
   without an explicit "force refresh" flag.
+
+## Dataset snapshot
+
+`data/colleges_snapshot.csv` carries the scraped dataset between machines
+because the SQLite file is gitignored. It contains **contact PII** — real
+email addresses and phone numbers for hundreds of colleges.
+
+- The repository holding it must stay **private**.
+- Never attach the file to a ticket, chat, or anything outside the repo.
+- Re-export it after any scraping run (`python -m backend.snapshot export`),
+  otherwise that work exists only on the machine that did it.
