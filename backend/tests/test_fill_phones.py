@@ -73,10 +73,27 @@ def test_mangled_emails_rejected() -> None:
     domain repeated after the TLD. Fourteen such addresses reached the DB."""
     from backend.fill_phones import _emails_from_text
 
-    for bad in ["29111info@giet.ac.ingiet",
-                "4565helpdesk@ist.srmtrichy.edu.in",
-                "9035069651info@bitm.edu.in"]:
-        assert _emails_from_text(bad) == [], f"mangled address kept: {bad!r}"
+    # Unrecoverable: the domain itself is corrupted, so there is no valid
+    # address to extract.
+    assert _emails_from_text("29111info@giet.ac.ingiet") == []
+
+    # Recoverable: the domain is intact and the real local part follows the
+    # run-together digits, so the address is salvaged rather than discarded.
+    # Two of the four found in the wild were placement-cell addresses.
+    for mangled, expected in [
+        ("9035069651info@bitm.edu.in", "info@bitm.edu.in"),
+        ("matters8885043433deanplacements@gvpce.ac.in", "deanplacements@gvpce.ac.in"),
+    ]:
+        assert _emails_from_text(mangled) == [expected], (
+            f"{mangled!r} -> {_emails_from_text(mangled)}"
+        )
+
+    # Salvage requires a run of 6+ digits, so a short numeric prefix is dropped
+    # rather than guessed at. That floor protects legitimate addresses that
+    # simply contain digits — info123@ and coe2@ must survive untouched.
+    assert _emails_from_text("4565helpdesk@ist.srmtrichy.edu.in") == []
+    assert _emails_from_text("info123@x.ac.in") == ["info123@x.ac.in"]
+    assert _emails_from_text("coe2@vtu.ac.in") == ["coe2@vtu.ac.in"]
 
     for good in ["placement@kongu.ac.in", "tpo@adityatekkali.edu.in",
                  "info@giet.ac.in", "lbcemym@lbrce.ac.in"]:
