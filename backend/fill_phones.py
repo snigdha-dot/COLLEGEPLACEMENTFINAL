@@ -165,6 +165,26 @@ _MANGLED_EMAIL = re.compile(
 )
 
 
+#: A run of 6+ digits inside a local part means a phone number or page number
+#: ran into the address during markdown conversion:
+#:   "matters8885043433deanplacements@gvpce.ac.in" -> "deanplacements@gvpce.ac.in"
+#: The real address follows the digits, so it can be recovered rather than
+#: discarded -- these are often the placement contact specifically.
+_EMBEDDED_DIGITS = re.compile(r"^.*?\d{6,}(?=[a-z])")
+
+
+def _salvage_local_part(address: str) -> str:
+    """Strip run-together prefixes, keeping the address if one survives."""
+    local, _, domain = address.partition("@")
+    if not domain:
+        return ""
+    cleaned = _EMBEDDED_DIGITS.sub("", local)
+    # Only accept the salvage if a plausible local part remains.
+    if cleaned and len(cleaned) >= 3 and not cleaned[0].isdigit():
+        return f"{cleaned}@{domain}"
+    return address
+
+
 def _emails_from_text(text: str) -> list[str]:
     """Addresses visible in page text, minus obvious non-contacts.
 
@@ -180,7 +200,8 @@ def _emails_from_text(text: str) -> list[str]:
         # Markdown runs adjacent text together, producing addresses like
         # "29111info@giet.ac.ingiet" — a page number glued to the front and the
         # domain repeated after the TLD. Both are undeliverable.
-        if _MANGLED_EMAIL.match(address):
+        address = _salvage_local_part(address)
+        if not address or _MANGLED_EMAIL.match(address):
             continue
         found.append(address)
     return list(dict.fromkeys(found))
